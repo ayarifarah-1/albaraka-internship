@@ -1,0 +1,195 @@
+# Bibliography of the report (Hayagriva format).
+
+lewis2020:
+  type: article
+  title: Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks
+  author:
+    - Lewis, Patrick
+    - Perez, Ethan
+    - Piktus, Aleksandra
+    - Petroni, Fabio
+    - Karpukhin, Vladimir
+    - Goyal, Naman
+    - Küttler, Heinrich
+    - Lewis, Mike
+    - Yih, Wen-tau
+    - Rocktäschel, Tim
+    - Riedel, Sebastian
+    - Kiela, Douwe
+  date: 2020
+  page-range: 9459-9474
+  parent:
+    type: proceedings
+    title: Advances in Neural Information Processing Systems 33 (NeurIPS 2020)
+
+barnett2024:
+  type: article
+  title: Seven Failure Points When Engineering a Retrieval Augmented Generation System
+  author:
+    - Barnett, Scott
+    - Kurniawan, Stefanus
+    - Thudumu, Srikanth
+    - Brannelly, Zach
+    - Abdelrazek, Mohamed
+  date: 2024
+  parent:
+    type: proceedings
+    title: Proceedings of the IEEE/ACM 3rd International Conference on AI Engineering – Software Engineering for AI (CAIN 2024)
+  serial-number:
+    arxiv: "2401.05856"
+
+robertson2009:
+  type: article
+  title: "The Probabilistic Relevance Framework: BM25 and Beyond"
+  author:
+    - Robertson, Stephen
+    - Zaragoza, Hugo
+  date: 2009
+  page-range: 333-389
+  parent:
+    type: periodical
+    title: Foundations and Trends in Information Retrieval
+    volume: 3
+    issue: 4
+
+cormack2009:
+  type: article
+  title: Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods
+  author:
+    - Cormack, Gordon V.
+    - Clarke, Charles L. A.
+    - Büttcher, Stefan
+  date: 2009
+  page-range: 758-759
+  parent:
+    type: proceedings
+    title: Proceedings of the 32nd International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR 2009)
+
+owasp2025:
+  type: report
+  title: OWASP Top 10 for LLM Applications 2025
+  author:
+    name: OWASP Foundation
+  date: 2024
+  url: https://genai.owasp.org/llm-top-10/
+
+loi2016:
+  type: legislation
+  title: Loi n° 2016-48 du 11 juillet 2016, relative aux banques et aux établissements financiers
+  author:
+    name: République Tunisienne
+  date: 2016-07-11
+  parent:
+    type: periodical
+    title: Journal Officiel de la République Tunisienne
+    issue: 58
+  page-range: 2195
+  url: http://www.legislation.tn/detailtexte/Loi-num-2016-48-du-11-07-2016-jort-2016-058__2016058000481
+
+bct2019:
+  type: legislation
+  title: "Circulaire aux banques et aux établissements financiers n° 2019-08 du 14 octobre 2019 : définition des opérations bancaires islamiques et fixation des modalités et conditions de leur exercice"
+  author:
+    name: Banque Centrale de Tunisie
+  date: 2019-10-14
+  url: https://www.bct.gov.tn/bct/siteprod/documents/Cir_2019_08_fr.pdf
+
+loi2004:
+  type: legislation
+  title: Loi organique n° 2004-63 du 27 juillet 2004, portant sur la protection des données à caractère personnel
+  author:
+    name: République Tunisienne
+  date: 2004-07-27
+  parent:
+    type: periodical
+    title: Journal Officiel de la République Tunisienne
+
+abg2024:
+  type: report
+  title: "Annual Report 2024: Strength in Collaboration, Shaping a Better Future"
+  author:
+    name: Al Baraka Group
+  date: 2025
+  location: Manama
+  url: https://www.albaraka.com/en/investor-relations/financials
+
+ilboursa2020:
+  type: web
+  title: Al Baraka Bank multiplie ses bénéfices quasiment par quatre en 2019 à 15 millions de dinars
+  author:
+    name: ilBoursa
+  date: 2020-04-10
+  url: https://www.ilboursa.com/marches/al-baraka-bank-multiplie-ses-benefices-quasiment-par-quatre-en-2019-a-15-millions-de-dinars_21767
+
+ugfs:
+  type: web
+  title: Our investors
+  author:
+    name: UGFS North Africa
+  date: 2023
+  url: https://www.ugfsnorthafrica.com.tn/our-investors-2/
+
+ilboursa2026:
+  type: web
+  title: Al Baraka Bank Tunisie stabilise son bénéfice à 42 millions de dinars en 2025
+  author:
+    name: ilBoursa
+  date: 2026-05-05
+  url: https://www.ilboursa.com/marches/al-baraka-bank-tunisie-stabilise-son-benefice-a-42-millions-de-dinars-en-2025_61475
+
+universnews2026:
+  type: web
+  title: "Al Baraka Bank Tunisie : une croissance solide, rentable et maîtrisée en 2025"
+  author:
+    name: Univers News
+  date: 2026-05-04
+  url: https://universnews.tn/al-baraka-bank-tunisie-une-croissance-solide-rentable-et-maitrisee-en-2025/
+
+ilboursa2021:
+  type: web
+  title: "Global Finance : Al Baraka Bank élue Meilleure institution financière islamique en Tunisie pour 2021"
+  author:
+    name: ilBoursa
+  date: 2021
+  url: https://www.ilboursa.com/marches/global-finance-al-baraka-bank-elue-meilleure-institution-financiere-islamique-en-tunisie-pour-2021_28020
+
+fastapi:
+  type: web
+  title: FastAPI documentation
+  author: Ramírez, Sebastián
+  url: https://fastapi.tiangolo.com
+
+chroma:
+  type: web
+  title: Chroma documentation
+  author:
+    name: Chroma
+  url: https://docs.trychroma.com
+
+springboot:
+  type: web
+  title: Spring Boot reference documentation
+  author:
+    name: Broadcom
+  url: https://docs.spring.io/spring-boot/
+
+angular:
+  type: web
+  title: Angular documentation
+  author:
+    name: Google
+  url: https://angular.dev
+
+postgresql:
+  type: web
+  title: PostgreSQL 16 documentation
+  author:
+    name: The PostgreSQL Global Development Group
+  url: https://www.postgresql.org/docs/16/
+
+typst:
+  type: web
+  title: Typst documentation
+  author:
+    name: Typst GmbH
+  url: https://typst.app/docs

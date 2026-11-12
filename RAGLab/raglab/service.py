@@ -108,7 +108,7 @@ from scrub import scrub_pii
 
 import docstore as docstore_mod
 
-SERVICE_VERSION = "1.5.0"
+SERVICE_VERSION = "1.6.0"
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +380,20 @@ class KeySetRequest(BaseModel):
                                "(like the console does); default: process env only")
 
 
+class EnvKeySetRequest(BaseModel):
+    key_env: str = Field(
+        min_length=1,
+        max_length=64,
+        description="registered provider variable (e.g. NVIDIA_API_KEY) or "
+                    "custom uppercase API key variable (e.g. OPENROUTER_API_KEY)",
+    )
+    value: str = Field(min_length=1, max_length=4096)
+    persist: bool = Field(
+        True,
+        description="write to raglab/.env on the service host (default: True)",
+    )
+
+
 class ChunkSearchRequest(BaseModel):
     text: str = Field(min_length=1, max_length=8000)
 
@@ -458,7 +472,8 @@ def create_app(profile: dict | None = None, *, generator=None,
                config_overrides: dict | None = None,
                service_token: str | None = None,
                documents_dir: str | None = None,
-               max_document_bytes: int | None = None) -> FastAPI:
+               max_document_bytes: int | None = None,
+               env_path: str | Path | None = None) -> FastAPI:
     """Build the service app.
 
     `profile` defaults to the environment (profile_from_env). The remaining
@@ -717,6 +732,7 @@ def create_app(profile: dict | None = None, *, generator=None,
                         "POST /profile {retrieval: {top_k, mode, lang_filter, neighbor_radius}}",
                     "corpus_dirs": "POST /profile {data_dirs: [...]}",
                     "api_keys": "GET/POST/DELETE /keys",
+                    "env_keys": "GET/POST/DELETE /env/keys",
                     "documents": "GET/POST/DELETE /documents",
                     "reindex": "POST /ingest (reset=true for a clean rebuild)"},
                 "docs": {"openapi": "/openapi.json", "interactive": "/docs",
@@ -1224,6 +1240,11 @@ def create_app(profile: dict | None = None, *, generator=None,
     # a key affects the service process immediately; persist=true additionally
     # writes it to raglab/.env on the service host, exactly like app.py.
 
+    def _env_file_path() -> Path:
+        return profiles.ENV_PATH if env_path is None else Path(env_path)
+
+    custom_runtime_keys: set[str] = set()
+
     @app.get("/keys")
     def list_keys():
         keys = []
@@ -1246,9 +1267,18 @@ def create_app(profile: dict | None = None, *, generator=None,
             raise ServiceError(400, "placeholder_value",
                                hint="that looks like the .env.example template, "
                                     "not a real key")
-        os.environ[request.key_env] = request.value
         if request.persist:
-            profiles.write_env_assignment(request.key_env, request.value)
+            try:
+                profiles.write_env_assignment(
+                    request.key_env, request.value, path=_env_file_path(),
+                    source="service /keys")
+            except OSError as exc:
+                raise ServiceError(
+                    500, "env_file_unwritable",
+                    error=safe_error(exc),
+                    hint="raglab/.env could not be written on the service host",
+                ) from None
+        os.environ[request.key_env] = request.value
         # A new key must invalidate anything built with the old/missing one.
         with runtime.lock:
             runtime._embedder = None
@@ -1262,13 +1292,168 @@ def create_app(profile: dict | None = None, *, generator=None,
         if env_name not in profiles.KEY_ENV_INFO:
             raise ServiceError(400, "unknown_key_env", key_env=env_name,
                                registered=sorted(profiles.KEY_ENV_INFO))
-        removed_file = profiles.remove_env_assignment(env_name) if persist else False
+        if persist:
+            try:
+                removed_file = profiles.remove_env_assignment(
+                    env_name, path=_env_file_path())
+            except OSError as exc:
+                raise ServiceError(
+                    500, "env_file_unwritable",
+                    error=safe_error(exc),
+                    hint="raglab/.env could not be updated on the service host",
+                ) from None
+        else:
+            removed_file = False
         os.environ.pop(env_name, None)
         with runtime.lock:
             runtime._embedder = None
             runtime._generator = None
         return {"env": env_name, "status": "missing",
                 "removed_from_env_file": removed_file}
+
+    # -- .env-backed API key management (provider + custom keys, additive) -----
+    # Frozen /keys keeps its strict KEY_ENV_INFO contract and persist=False
+    # default. /env/keys adds raglab/.env status inspection, custom API-key
+    # support (uppercase *_API_KEY / *_KEY, never RAGLAB_* or system vars),
+    # and persist=True by default for direct UI administration.
+
+    @app.get("/env/keys")
+    def list_env_keys():
+        target = _env_file_path()
+        exists = target.exists()
+        check_target = target if exists else target.parent
+        writable = os.access(check_target, os.W_OK)
+        env_map = profiles.read_env_file(target)
+
+        entries = []
+        for env_name, description in profiles.KEY_ENV_INFO.items():
+            live_val = os.environ.get(env_name, "").strip()
+            file_val = env_map.get(env_name, "").strip()
+            effective = live_val or file_val
+            entries.append({
+                "env": env_name,
+                "description": description,
+                "registered": True,
+                "status": "set" if live_val else "missing",
+                "in_process": bool(live_val),
+                "in_env_file": bool(file_val),
+                "masked": profiles.masked(effective) if effective else None,
+            })
+
+        custom_candidates = sorted(
+            (set(env_map) | custom_runtime_keys) - set(profiles.KEY_ENV_INFO)
+        )
+        for env_name in custom_candidates:
+            if not profiles.is_allowed_custom_key_env(env_name):
+                continue
+            live_val = os.environ.get(env_name, "").strip()
+            file_val = env_map.get(env_name, "").strip()
+            effective = live_val or file_val
+            if not effective:
+                continue
+            entries.append({
+                "env": env_name,
+                "description": "Custom API key (raglab/.env)",
+                "registered": False,
+                "status": "set" if live_val else "missing",
+                "in_process": bool(live_val),
+                "in_env_file": bool(file_val),
+                "masked": profiles.masked(effective),
+            })
+
+        return {
+            "env_file": {
+                "path": "raglab/.env",
+                "exists": exists,
+                "writable": writable,
+            },
+            "keys": entries,
+        }
+
+    @app.post("/env/keys")
+    def set_env_key(request: EnvKeySetRequest):
+        key_env = request.key_env.strip()
+        if not profiles.is_manageable_key_env(key_env):
+            raise ServiceError(
+                400, "bad_key_env",
+                key_env=key_env,
+                registered=sorted(profiles.KEY_ENV_INFO),
+                hint="must be a registered provider key or an uppercase custom "
+                     "variable ending in _API_KEY or _KEY (e.g. OPENROUTER_API_KEY); "
+                     "RAGLAB_* and system variables are reserved",
+            )
+        if re.search(r"[\s\"']", request.value):
+            raise ServiceError(400, "bad_key_value",
+                               hint="a key cannot contain spaces or quotes")
+        if profiles.looks_like_placeholder(request.value):
+            raise ServiceError(400, "placeholder_value",
+                               hint="that looks like the .env.example template, "
+                                    "not a real key")
+        target = _env_file_path()
+        if request.persist:
+            try:
+                profiles.write_env_assignment(
+                    key_env, request.value, path=target,
+                    source="service /env/keys")
+            except OSError as exc:
+                raise ServiceError(
+                    500, "env_file_unwritable",
+                    error=safe_error(exc),
+                    hint="raglab/.env could not be written on the service host",
+                ) from None
+        os.environ[key_env] = request.value
+        if key_env not in profiles.KEY_ENV_INFO:
+            custom_runtime_keys.add(key_env)
+        with runtime.lock:
+            runtime._embedder = None
+            runtime._generator = None
+        env_map = profiles.read_env_file(target)
+        return {
+            "env": key_env,
+            "registered": key_env in profiles.KEY_ENV_INFO,
+            "status": "set",
+            "in_process": True,
+            "in_env_file": bool(env_map.get(key_env, "").strip()),
+            "masked": profiles.masked(request.value),
+            "persisted": bool(request.persist),
+        }
+
+    @app.delete("/env/keys/{env_name}")
+    def delete_env_key(env_name: str, persist: bool = True):
+        key_env = env_name.strip()
+        if not profiles.is_manageable_key_env(key_env):
+            raise ServiceError(
+                400, "bad_key_env",
+                key_env=key_env,
+                registered=sorted(profiles.KEY_ENV_INFO),
+                hint="only registered provider keys and custom *_API_KEY / *_KEY "
+                     "variables may be deleted via /env/keys",
+            )
+        target = _env_file_path()
+        if persist:
+            try:
+                removed_file = profiles.remove_env_assignment(key_env, path=target)
+            except OSError as exc:
+                raise ServiceError(
+                    500, "env_file_unwritable",
+                    error=safe_error(exc),
+                    hint="raglab/.env could not be updated on the service host",
+                ) from None
+        else:
+            removed_file = False
+        os.environ.pop(key_env, None)
+        custom_runtime_keys.discard(key_env)
+        with runtime.lock:
+            runtime._embedder = None
+            runtime._generator = None
+        env_map = profiles.read_env_file(target)
+        return {
+            "env": key_env,
+            "status": "missing",
+            "in_process": False,
+            "in_env_file": bool(env_map.get(key_env, "").strip()),
+            "removed_from_env_file": removed_file,
+        }
 
     # -- corpus inspection (no model calls) ---------------------------------------
 

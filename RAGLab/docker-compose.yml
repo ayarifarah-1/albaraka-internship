@@ -31,6 +31,7 @@ services:
                                              # raglab/.env) and the service behind
                                              # the gateway when enabled
     volumes:
+      - ./raglab/.env:/app/raglab/.env           # UI key edits via /env/keys persist on host
       - raglab-index:/app/raglab/chroma_db
       - raglab-embed-cache:/app/raglab/caches
       - raglab-documents:/app/raglab/documents   # pushed docs survive redeploys

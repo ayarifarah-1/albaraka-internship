@@ -2637,6 +2637,7 @@ class PackagingTest(unittest.TestCase):
         self.assertIn("build: .", compose)
         self.assertIn("env_file:", compose)
         self.assertIn("raglab/.env", compose)
+        self.assertIn("./raglab/.env:/app/raglab/.env", compose)
         for volume in ("raglab-index", "raglab-embed-cache", "raglab-documents"):
             self.assertIn(volume, compose)
         # the liveness probe is token-aware (/health is behind the token

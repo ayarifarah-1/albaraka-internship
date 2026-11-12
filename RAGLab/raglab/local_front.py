@@ -175,8 +175,12 @@ def prompt(text: str) -> str:
     return input(text).strip()
 
 
-def confirm(question: str) -> bool:
-    return prompt(f"{question} [y/N]: ").lower() in ("y", "yes")
+def confirm(question: str, *, default: bool = False) -> bool:
+    suffix = "[Y/n]" if default else "[y/N]"
+    raw = prompt(f"{question} {suffix}: ").lower()
+    if not raw:
+        return default
+    return raw in ("y", "yes")
 
 
 def choose_number(count: int, *, default: int = 1) -> int:
@@ -251,6 +255,12 @@ class Console:
         if status != 200:
             raise RuntimeError(f"GET /keys -> {status}: {detail_of(body)}")
         return body["keys"]
+
+    def env_keys(self):
+        status, body = self.api.get("/env/keys")
+        if status == 200 and isinstance(body, dict) and "keys" in body:
+            return body["keys"], body.get("env_file") or {}, True
+        return self.keys(), {}, False
 
     def key_map(self) -> dict:
         return {row["env"]: row for row in self.keys()}
@@ -479,26 +489,58 @@ class Console:
 
     def action_keys(self) -> None:
         while True:
-            rows = self.keys()
+            rows, env_file, has_env_endpoint = self.env_keys()
+            endpoint = "/env/keys" if has_env_endpoint else "/keys"
             print("\nAPI keys on the service — masked to 8 characters, never in full")
+            if env_file:
+                state_txt = "writable" if env_file.get("writable") else "read-only"
+                exists_txt = "present" if env_file.get("exists") else "will be created on save"
+                print(f"  env file: {env_file.get('path', 'raglab/.env')} ({exists_txt}, {state_txt})")
             for index, row in enumerate(rows, 1):
                 mark = f"set ({row['masked']})" if row["status"] == "set" else "—"
+                if row.get("in_env_file"):
+                    mark += " [.env]"
+                elif row["status"] == "set" and has_env_endpoint:
+                    mark += " [mem]"
                 print(f"  {index:>2}. {row['env']:22} {mark}")
                 print(f"      {row['description']}")
+            add_custom_idx = len(rows) + 1 if has_env_endpoint else 0
+            if has_env_endpoint:
+                print(f"  {add_custom_idx:>2}. + add or update a custom API key in raglab/.env")
             print("   0. back")
-            choice = choose_number(len(rows), default=0)
+            max_choice = add_custom_idx if has_env_endpoint else len(rows)
+            choice = choose_number(max_choice, default=0)
             if choice == 0:
                 return
+            if has_env_endpoint and choice == add_custom_idx:
+                custom_env = prompt("  custom env var name (e.g. OPENROUTER_API_KEY): ").upper()
+                if not custom_env:
+                    continue
+                value = paste_key()
+                if value is None:
+                    print("  cancelled — nothing sent.")
+                    continue
+                persist = confirm("  persist to raglab/.env?", default=True)
+                status, body = self.api.post("/env/keys", payload={
+                    "key_env": custom_env, "value": value, "persist": persist})
+                if status != 200:
+                    print(f"  [front] HTTP {status}: {detail_of(body)}")
+                    continue
+                print(f"  service now has {body['env']} set ({body['masked']})"
+                      + (" — written to raglab/.env" if body.get("persisted") else ""))
+                continue
             row = rows[choice - 1]
-            if row["status"] == "set":
-                answer = prompt(f"{row['env']} is set ({row['masked']}) — "
+            if row["status"] == "set" or row.get("in_env_file"):
+                answer = prompt(f"{row['env']} is set ({row.get('masked') or 'set'}) — "
                                 "Enter=keep, c=change, d=remove: ").lower()
                 if answer in ("", "k", "keep"):
                     continue
                 if answer == "d":
-                    persist = confirm("  also remove it from the service's raglab/.env?")
+                    persist = confirm("  also remove it from the service's raglab/.env?",
+                                      default=bool(row.get("in_env_file")))
                     status, body = self.api.delete(
-                        f"/keys/{row['env']}", params={"persist": "true" if persist else None})
+                        f"{endpoint}/{row['env']}",
+                        params={"persist": "true" if persist else "false"})
                     print(f"[front] HTTP {status}: {detail_of(body)}"
                           if status != 200 else
                           f"[front] {row['env']} dropped from the service"
@@ -510,8 +552,8 @@ class Console:
             if value is None:
                 print("  cancelled — nothing sent.")
                 continue
-            persist = confirm("  also persist it to the service's raglab/.env?")
-            status, body = self.api.post("/keys", payload={
+            persist = confirm("  persist to the service's raglab/.env?", default=True)
+            status, body = self.api.post(endpoint, payload={
                 "key_env": row["env"], "value": value, "persist": persist})
             if status != 200:
                 print(f"  [front] HTTP {status}: {detail_of(body)}")
@@ -1446,6 +1488,29 @@ def run_suite(api: Api, *, spend: bool = True) -> tuple[int, int]:
                     f"set={status} delete={status2}")
     else:
         suite.note("KIRA_API_KEY is configured on the service — round-trip skipped")
+
+    status, env_keys = api.get("/env/keys")
+    env_rows = env_keys.get("keys", []) if isinstance(env_keys, dict) else []
+    suite.check("GET /env/keys reports .env metadata + registered keys",
+                status == 200 and isinstance(env_keys.get("env_file"), dict)
+                and {"NVIDIA_API_KEY", "XKIRO_API_KEY"} <= {row.get("env") for row in env_rows},
+                f"status={status}")
+    status, body = api.post("/env/keys", payload={"key_env": "RAGLAB_SERVICE_TOKEN",
+                                                  "value": "forbidden-override-12345",
+                                                  "persist": False})
+    suite.check("POST /env/keys rejects reserved RAGLAB_* variables (400)",
+                status == 400 and reason_of(body) == "bad_key_env",
+                f"status={status} reason={reason_of(body)}")
+    status, body = api.post("/env/keys", payload={"key_env": "SMOKE_TEMP_API_KEY",
+                                                  "value": "smoke-custom-123456",
+                                                  "persist": False})
+    ok_custom = (status == 200 and body.get("status") == "set"
+                 and body.get("registered") is False
+                 and body.get("masked") == "smoke-cu…" and not body.get("persisted"))
+    status2, body2 = api.delete("/env/keys/SMOKE_TEMP_API_KEY", params={"persist": "false"})
+    suite.check("POST+DELETE /env/keys custom key round-trip (masked, memory-only)",
+                ok_custom and status2 == 200 and body2.get("status") == "missing",
+                f"set={status} delete={status2}")
 
     # -- inspect + chunk search (no model calls) ----------------------------------
     status, body = api.get("/inspect", params={"limit": 1})

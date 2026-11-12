@@ -144,7 +144,7 @@ class ServiceTest(unittest.TestCase):
         body = self.client.get("/health").json()
         self.assertEqual(self.client.get("/").status_code, 200)
         self.assertEqual(body["status"], "ok")
-        self.assertEqual(body["version"], "1.5.0")
+        self.assertEqual(body["version"], "1.6.0")
         self.assertEqual(body["profile"]["embedding"]["provider"], "huggingface")
         self.assertEqual(body["profile"]["answer"]["model"], PROFILE_MODEL)
         self.assertIn("collection", body["index"])
@@ -1091,9 +1091,10 @@ class ConsoleEndpointsTest(unittest.TestCase):
                                     approved_models=(PROFILE_MODEL,))
         sys.modules["sentence_transformers"] = types.ModuleType("sentence_transformers")
         sys.modules["sentence_transformers"].SentenceTransformer = _FakeSentenceTransformer
+        cls.env_file = cls.tmp / ".env"
         cls.client = TestClient(service.create_app(
             cls.profile, generator=generator, allow_profile_switch=True,
-            config_overrides=cls.overrides))
+            config_overrides=cls.overrides, env_path=cls.env_file))
         accepted = cls.client.post("/ingest")
         assert accepted.status_code == 200, accepted.text
         deadline = time.monotonic() + 60
@@ -1174,6 +1175,94 @@ class ConsoleEndpointsTest(unittest.TestCase):
         finally:
             if saved is not None:
                 os.environ["KIRA_API_KEY"] = saved
+
+    def test_env_keys_persists_provider_and_custom_keys_safely(self):
+        saved_kira = os.environ.get("KIRA_API_KEY")
+        saved_custom = os.environ.get("OPENROUTER_API_KEY")
+        os.environ.pop("KIRA_API_KEY", None)
+        os.environ.pop("OPENROUTER_API_KEY", None)
+        self.env_file.write_text(
+            "# Operator notes stay intact\nRAGLAB_SERVICE_TOKEN=super-secret-token-999\n",
+            encoding="utf-8",
+        )
+        try:
+            initial = self.client.get("/env/keys")
+            self.assertEqual(initial.status_code, 200, initial.text)
+            payload = initial.json()
+            self.assertTrue(payload["env_file"]["exists"])
+            self.assertTrue(payload["env_file"]["writable"])
+            # RAGLAB_SERVICE_TOKEN in .env must NEVER appear in /env/keys output
+            self.assertNotIn("RAGLAB_SERVICE_TOKEN", json.dumps(payload))
+            self.assertNotIn("super-secret-token-999", json.dumps(payload))
+
+            # Reserved and malformed names must be rejected
+            for bad_name in ("RAGLAB_SERVICE_TOKEN", "RAGLAB_API_KEY", "PATH",
+                             "PYTHONPATH", "SUFFICIENCY_FIELDS_ENABLED",
+                             "lowercase_api_key", "RANDOM_VAR"):
+                bad = self.client.post("/env/keys", json={
+                    "key_env": bad_name, "value": "valid-secret-value-12345"})
+                self.assertEqual(bad.status_code, 400, bad_name)
+                self.assertEqual(bad.json()["detail"]["reason"], "bad_key_env")
+                del_bad = self.client.delete(f"/env/keys/{bad_name}")
+                self.assertEqual(del_bad.status_code, 400, bad_name)
+
+            # Default persist=True writes both registered and custom keys to .env
+            r_prov = self.client.post("/env/keys", json={
+                "key_env": "KIRA_API_KEY", "value": "kira-persisted-secret-777"})
+            self.assertEqual(r_prov.status_code, 200, r_prov.text)
+            self.assertTrue(r_prov.json()["persisted"])
+            self.assertTrue(r_prov.json()["in_env_file"])
+            self.assertTrue(r_prov.json()["registered"])
+            self.assertEqual(r_prov.json()["masked"], "kira-per…")
+
+            r_cust = self.client.post("/env/keys", json={
+                "key_env": "OPENROUTER_API_KEY", "value": "sk-or-v1-abcdef123456"})
+            self.assertEqual(r_cust.status_code, 200, r_cust.text)
+            self.assertTrue(r_cust.json()["persisted"])
+            self.assertTrue(r_cust.json()["in_env_file"])
+            self.assertFalse(r_cust.json()["registered"])
+            self.assertEqual(r_cust.json()["masked"], "sk-or-v1…")
+
+            # Verify .env file on disk kept comments + service token + new keys
+            disk_text = self.env_file.read_text(encoding="utf-8")
+            self.assertIn("# Operator notes stay intact", disk_text)
+            self.assertIn("RAGLAB_SERVICE_TOKEN=super-secret-token-999", disk_text)
+            self.assertIn("KIRA_API_KEY=kira-persisted-secret-777", disk_text)
+            self.assertIn("OPENROUTER_API_KEY=sk-or-v1-abcdef123456", disk_text)
+
+            # Update existing key in place (no duplicate assignment lines)
+            r_upd = self.client.post("/env/keys", json={
+                "key_env": "OPENROUTER_API_KEY", "value": "sk-or-v2-rotated987654"})
+            self.assertEqual(r_upd.status_code, 200)
+            disk_after_upd = self.env_file.read_text(encoding="utf-8")
+            self.assertEqual(disk_after_upd.count("OPENROUTER_API_KEY="), 1)
+            self.assertIn("OPENROUTER_API_KEY=sk-or-v2-rotated987654", disk_after_upd)
+
+            # GET /env/keys lists custom key masked, never full value
+            listed_after = self.client.get("/env/keys").json()
+            blob = json.dumps(listed_after)
+            self.assertNotIn("sk-or-v2-rotated987654", blob)
+            self.assertNotIn("kira-persisted-secret-777", blob)
+            by_env = {row["env"]: row for row in listed_after["keys"]}
+            self.assertEqual(by_env["OPENROUTER_API_KEY"]["masked"], "sk-or-v2…")
+            self.assertTrue(by_env["OPENROUTER_API_KEY"]["in_env_file"])
+
+            # DELETE /env/keys removes from both process and .env by default
+            del_cust = self.client.delete("/env/keys/OPENROUTER_API_KEY")
+            self.assertEqual(del_cust.status_code, 200)
+            self.assertTrue(del_cust.json()["removed_from_env_file"])
+            self.assertNotIn("OPENROUTER_API_KEY",
+                             self.env_file.read_text(encoding="utf-8"))
+            self.assertIn("RAGLAB_SERVICE_TOKEN=super-secret-token-999",
+                          self.env_file.read_text(encoding="utf-8"))
+            self.client.delete("/env/keys/KIRA_API_KEY")
+        finally:
+            if self.env_file.exists():
+                self.env_file.unlink()
+            if saved_kira is not None:
+                os.environ["KIRA_API_KEY"] = saved_kira
+            if saved_custom is not None:
+                os.environ["OPENROUTER_API_KEY"] = saved_custom
 
     def test_inspect_reports_chunking_without_model_calls(self):
         response = self.client.get("/inspect", params={"limit": 2})

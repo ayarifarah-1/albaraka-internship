@@ -1,0 +1,135 @@
+# =============================================================================
+# Al Baraka Bank Assistant & RAGLab — Standalone Demo Stack (No Source Code)
+# Owner: Ayari Farah (Docker Hub: elayarifarah)
+# =============================================================================
+# Quickstart:
+#   1. (Optional) Paste your API keys in `config/api-keys.env`
+#      (or enter them after launch in the UI: /admin/raglab/settings?tab=keys)
+#   2. Run:   docker compose up -d
+#   3. Open:  http://localhost:8080
+# =============================================================================
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-banque_assistant}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - albaraka_demo_pgdata:/var/lib/postgresql/data
+    networks:
+      - albaraka-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-banque_assistant}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  raglab:
+    image: ${REGISTRY:-elayarifarah}/albaraka-raglab:${TAG:-latest}
+    restart: unless-stopped
+    environment:
+      RAGLAB_ENV_FILE: /config/api-keys.env
+      RAGLAB_SERVICE_TOKEN: ${RAGLAB_SERVICE_TOKEN:-albaraka-internal-raglab-token}
+      RAGLAB_ALLOW_PROFILE_SWITCH: "${RAGLAB_ALLOW_PROFILE_SWITCH:-1}"
+      RAGLAB_CACHE_DIR: /app/raglab/caches
+    ports:
+      - "127.0.0.1:${RAGLAB_PORT:-8000}:8000"
+    volumes:
+      - ./config:/config
+      - albaraka_demo_raglab_index:/app/raglab/chroma_db
+      - albaraka_demo_raglab_caches:/app/raglab/caches
+      - albaraka_demo_raglab_documents:/app/raglab/documents
+    networks:
+      - albaraka-net
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, sys, urllib.request; r = urllib.request.Request('http://127.0.0.1:8000/health', headers={'X-Service-Token': os.environ.get('RAGLAB_SERVICE_TOKEN') or os.environ.get('RAGLAB_TOKEN', '')}); sys.exit(0 if urllib.request.urlopen(r, timeout=5).status == 200 else 1)"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 25s
+
+  backend:
+    image: ${REGISTRY:-elayarifarah}/albaraka-backend:${TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      raglab:
+        condition: service_healthy
+    environment:
+      BACKEND_PORT: 8081
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-banque_assistant}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-banque_assistant}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-validate}
+      DEV_SEED: ${DEV_SEED:-true}
+      CUSTOMER_CONTEXT_ENABLED: ${CUSTOMER_CONTEXT_ENABLED:-true}
+      JWT_SECRET: ${JWT_SECRET:-YWxiYXJha2EtZGV2LW9ubHktand0LXNlY3JldC1jaGFuZ2UtbWUtaW4tcHJvZC0yNTY=}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+      JWT_REFRESH_EXPIRATION_MS: ${JWT_REFRESH_EXPIRATION_MS:-604800000}
+      METRICS_PUBLIC: "${METRICS_PUBLIC:-true}"
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:4200}
+      RAGLAB_URL: ${RAGLAB_URL:-http://raglab:8000}
+      RAGLAB_TOKEN: ${RAGLAB_SERVICE_TOKEN:-albaraka-internal-raglab-token}
+      APP_UPLOAD_DIR: /app/uploads
+      RATE_LIMIT_LOGIN_MAX: ${RATE_LIMIT_LOGIN_MAX:-10}
+      RATE_LIMIT_CHAT_MAX: ${RATE_LIMIT_CHAT_MAX:-30}
+      RATE_LIMIT_UPLOAD_MAX: ${RATE_LIMIT_UPLOAD_MAX:-20}
+      CHAT_HISTORY_RETENTION_DAYS: ${CHAT_HISTORY_RETENTION_DAYS:-0}
+      CHAT_HISTORY_BACKFILL_ENABLED: ${CHAT_HISTORY_BACKFILL_ENABLED:-false}
+      CHAT_HISTORY_BACKFILL_DRY_RUN: ${CHAT_HISTORY_BACKFILL_DRY_RUN:-true}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8081}:8081"
+    volumes:
+      - albaraka_demo_uploads:/app/uploads
+    networks:
+      - albaraka-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  frontend:
+    image: ${REGISTRY:-elayarifarah}/albaraka-frontend:${TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - albaraka-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+networks:
+  albaraka-net:
+    driver: bridge
+
+volumes:
+  albaraka_demo_pgdata:
+  albaraka_demo_uploads:
+  albaraka_demo_raglab_index:
+  albaraka_demo_raglab_caches:
+  albaraka_demo_raglab_documents:

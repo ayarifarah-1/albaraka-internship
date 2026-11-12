@@ -2,6 +2,7 @@ package com.albaraka.backend.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
@@ -89,6 +90,12 @@ public class GlobalExceptionHandler {
         // gateway rather than letting valueOf() throw inside the handler.
         HttpStatus status = HttpStatus.resolve(ex.getStatus());
         return new ResponseEntity<>(details, status == null ? HttpStatus.BAD_GATEWAY : status);
+    }
+
+    /** 403 — method-security (@PreAuthorize) denials must not become 500s. */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccessDenied(AccessDeniedException ex) {
+        return body(HttpStatus.FORBIDDEN, "Accès refusé.");
     }
 
     /** 500 — anything else; keep the server from leaking internals. */

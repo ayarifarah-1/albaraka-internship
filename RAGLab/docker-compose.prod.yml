@@ -1,6 +1,6 @@
 # RAGLab production image runner — references a prebuilt image, NEVER builds.
 # The image comes from one of two places (raglab/PROD_IMAGE.md covers both):
-#   A) a registry pull:  docker pull ghcr.io/seif-bkh/raglab-service:<version>
+#   A) a registry pull:  docker pull elayarifarah/raglab-service:<version>
 #      (internet needed once, at pull time only)
 #   B) a tarball on an offline machine:  gunzip -c raglab-service-*.tar.gz | docker load
 #      (zero internet — then set RAGLAB_PULL_POLICY=never below so compose
@@ -14,7 +14,7 @@
 # /health answers 200 open or 401 behind the token — both mean alive.
 services:
   raglab:
-    image: ghcr.io/seif-bkh/raglab-service:${RAGLAB_VERSION:-latest}
+    image: elayarifarah/raglab-service:${RAGLAB_VERSION:-latest}
     pull_policy: ${RAGLAB_PULL_POLICY:-missing}    # 'never' on air-gapped machines
     ports:
       - "${RAGLAB_PORT:-8000}:8000"

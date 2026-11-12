@@ -25,7 +25,7 @@ try {
         if ($match) { $Version = $match.Matches.Groups[1].Value }
     }
     if (-not $Version) { throw "no -Version given and SERVICE_VERSION not found in raglab\service.py" }
-    $image  = "ghcr.io/seif-bkh/raglab-service"
+    $image  = "elayarifarah/raglab-service"
     $vcsRef = (git rev-parse --short HEAD 2>$null); if (-not $vcsRef) { $vcsRef = "unknown" }
 
     Write-Host "[save-image] building ${image}:$Version (+ :latest) from Dockerfile.prod ..."

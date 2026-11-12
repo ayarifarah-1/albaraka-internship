@@ -44,6 +44,7 @@ Browser (http://localhost:8080)
 
 ## Quickstart
 
+### Option A — Build locally from source
 ```bash
 # 1. Build and start all 4 services (postgres, raglab, backend, frontend)
 docker compose up --build -d
@@ -53,6 +54,21 @@ docker compose ps
 
 # 3. Open the web application
 #    http://localhost:8080
+```
+
+### Option B — Pull prebuilt images from Docker Hub (`elayarifarah`)
+Images are automatically built and published via GitHub Actions to **Ayari Farah**'s Docker Hub namespace (`elayarifarah`):
+- `elayarifarah/albaraka-raglab:latest` (standalone prod variant: `elayarifarah/raglab-service:latest`)
+- `elayarifarah/albaraka-backend:latest`
+- `elayarifarah/albaraka-frontend:latest`
+
+```bash
+# Authenticate when pushing or pulling private tags
+docker login -u elayarifarah
+
+# Pull prebuilt images and launch without compiling Java / Node / Python locally
+docker compose pull
+docker compose up -d
 ```
 
 ### Default Local Accounts (`DEV_SEED=true`)

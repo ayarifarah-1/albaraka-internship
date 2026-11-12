@@ -50,7 +50,7 @@ services:
     build:
       context: ./RAGLab
       dockerfile: Dockerfile
-    image: ${REGISTRY:-albaraka/}raglab:${TAG:-local}
+    image: ${REGISTRY:-elayarifarah}/albaraka-raglab:${TAG:-latest}
     restart: unless-stopped
     environment:
       RAGLAB_ENV_FILE: /host-raglab/.env
@@ -86,7 +86,7 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-local}
         GIT_BRANCH: ${GIT_BRANCH:-local}
-    image: ${REGISTRY:-albaraka/}backend:${TAG:-local}
+    image: ${REGISTRY:-elayarifarah}/albaraka-backend:${TAG:-latest}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -141,7 +141,7 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-local}
         GIT_BRANCH: ${GIT_BRANCH:-local}
-    image: ${REGISTRY:-albaraka/}frontend:${TAG:-local}
+    image: ${REGISTRY:-elayarifarah}/albaraka-frontend:${TAG:-latest}
     restart: unless-stopped
     depends_on:
       backend:

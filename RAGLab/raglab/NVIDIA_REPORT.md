@@ -22,7 +22,7 @@ end-to-end evaluation is not complete, and this is not production-ready.**
   measurements must not be presented as passed tests or as model-quality scores.
 
 The serial basic-profile resume also finished **incomplete**
-([run 33972170903](https://github.com/seif-bkh/RAGLab/actions/runs/33972170903),
+(run `33972170903`,
 [measurements](reports/nvidia_iteration_03.json)). All successful answers in it
 came from cache; new answer attempts still returned HTTP 429. The temporary
 GitHub authentication interruption was resolved.
@@ -37,10 +37,10 @@ KiosAPI routing blocker. Those results are **not mixed into these NVIDIA measure
 | Experiment | Evidence | Outcome |
 |---|---|---|
 | Exact-model endpoint probes | [Probe records](reports/nvidia_model_probes.json) | Nemotron, Kimi and Riva responded; DeepSeek initially timed out |
-| Iteration 01: retrieval | [Run 33969545639](https://github.com/seif-bkh/RAGLab/actions/runs/33969545639), [measurements](reports/nvidia_iteration_01.json) | Original/Kimi retrieval measured; DeepSeek timeout, invalid direct Riva pair routing and a reference-test rate limit prevented completion |
-| Iteration 02: all stages | [Run 33970405295](https://github.com/seif-bkh/RAGLab/actions/runs/33970405295), [measurements](reports/nvidia_iteration_02.json) | All translators and their selected-prompt reference suites completed; answer/security testing incomplete |
-| Report recovery | [Run 33971261399](https://github.com/seif-bkh/RAGLab/actions/runs/33971261399) | Successful; no model calls. The original compact summary was 60,204 bytes, exceeding the publisher's 60,000-byte guard |
-| Iteration 03 | [Run 33972170903](https://github.com/seif-bkh/RAGLab/actions/runs/33972170903), [measurements](reports/nvidia_iteration_03.json) | Incomplete: cached answers reused, new attempts rate-limited |
+| Iteration 01: retrieval | Run `33969545639`, [measurements](reports/nvidia_iteration_01.json) | Original/Kimi retrieval measured; DeepSeek timeout, invalid direct Riva pair routing and a reference-test rate limit prevented completion |
+| Iteration 02: all stages | Run `33970405295`, [measurements](reports/nvidia_iteration_02.json) | All translators and their selected-prompt reference suites completed; answer/security testing incomplete |
+| Report recovery | Run `33971261399` | Successful; no model calls. The original compact summary was 60,204 bytes, exceeding the publisher's 60,000-byte guard |
+| Iteration 03 | Run `33972170903`, [measurements](reports/nvidia_iteration_03.json) | Incomplete: cached answers reused, new attempts rate-limited |
 
 Iteration 02 ran commit `be5f4448b09cd8905db6eaaf718d215bf4036e11`.
 Recovery published neutral measurement Checks, not passing quality certifications.
@@ -175,7 +175,7 @@ orchestration framework, UI, account access or cloud vector database was added.
 
 **128 offline checks pass** (59 legacy + 69 pipeline/report/gateway/CLI tests), together
 with compilation and `pip check`. Remote CI has also passed
-([run 33971261523](https://github.com/seif-bkh/RAGLab/actions/runs/33971261523));
+(run `33971261523`);
 newer changes have also passed the local checks and are being pushed for CI. Offline/CI success is not a live
 model-quality or security certificate.
 
@@ -211,7 +211,7 @@ Neither historical result is overwritten. Expanded-context testing remains incom
 ### New provider catalog checks
 
 [Catalog evidence](reports/provider_catalog_01.json),
-[Actions run 33972512410](https://github.com/seif-bkh/RAGLab/actions/runs/33972512410):
+Actions run `33972512410`:
 
 - Both named repository secrets were present; neither key was exported to the
   workspace or report. Each provider received only its own credential.

@@ -875,8 +875,8 @@ Current state of the work:
      with HEALTHCHECK `raglab/container_healthcheck.py` that treats 401 as
      alive because the API is token-gated). Served with `--network none` in
      CI (`.github/workflows/docker-image.yml`: tag `v*` → build + offline
-     smoke (docker/offline_smoke.py copied into the container) + GHCR push
-     `ghcr.io/seif-bkh/raglab-service` + Release exports; dispatch default =
+     smoke (docker/offline_smoke.py copied into the container) + Docker Hub push
+     `elayarifarah/raglab-service` + Release exports; dispatch default =
      build+smoke only). Exports ship in TWO packagings of the same docker-save
      tar: `.tar.gz` (Linux/macOS) + `.zip` (Windows) + one `.sha256` sidecar;
      `docker/save-image.sh|.ps1` produce them locally and
@@ -1021,9 +1021,9 @@ Channels that WORK (use in this order):
 1. **Status**: `gh run list --limit 5` / `gh run view <run_id>` (conclusion, headSha).
    Note: `--limit 1` can return a stale top entry — always watch the run whose
    `headSha` == `git rev-parse HEAD`.
-2. **Annotations**: `gh api repos/seif-bkh/RAGLab/actions/runs/<run_id>/check-runs`
+2. **Annotations**: `gh api repos/<owner>/<repo>/actions/runs/<run_id>/check-runs`
    for ids, then
-   `gh api repos/seif-bkh/RAGLab/check-runs/<check_run_id>/annotations`.
+   `gh api repos/<owner>/<repo>/check-runs/<check_run_id>/annotations`.
    Both workflows emit their diagnostics as annotations on purpose:
    - `ci.yml` failure step re-runs the offline commands and emits the tail as
      `::error::` (carries the reproduction).

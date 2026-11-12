@@ -1,7 +1,7 @@
 # RAGLab service — production image (multi-stage, self-contained).
 #
 # Build (build host needs internet ONCE: base image + PyPI + the tiktoken CDN):
-#   docker build -f Dockerfile.prod -t ghcr.io/seif-bkh/raglab-service:1.2.5 .
+#   docker build -f Dockerfile.prod -t elayarifarah/raglab-service:1.2.5 .
 #   # or fully scripted:  docker/save-image.sh        (bash)
 #   #                     docker\save-image.ps1       (Windows)
 #
@@ -13,7 +13,7 @@
 #
 #   docker run -d --name raglab -p 8000:8000 --env-file raglab/.env \
 #     -v raglab-index:/app/raglab/chroma_db \
-#     ghcr.io/seif-bkh/raglab-service:1.2.5
+#     elayarifarah/raglab-service:1.2.5
 
 # ---------------------------------------------------------------------------
 # Stage 1 — dependencies in an isolated venv + baked tokenizer cache.
@@ -46,7 +46,8 @@ ARG SERVICE_VERSION=unknown
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.title="RAGLab service" \
       org.opencontainers.image.description="Document-grounded QA microservice (ar/fr/en): FastAPI + ChromaDB, NVIDIA embeddings + xKiro answers" \
-      org.opencontainers.image.source="https://github.com/seif-bkh/RAGLab" \
+      org.opencontainers.image.authors="Ayari Farah" \
+      org.opencontainers.image.vendor="Ayari Farah" \
       org.opencontainers.image.version="${SERVICE_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}"
 

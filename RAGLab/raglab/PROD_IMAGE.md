@@ -37,7 +37,7 @@ Push a tag matching `v*` — the workflow
 (`.github/workflows/docker-image.yml`) builds, offline-smokes and publishes:
 
 ```
-ghcr.io/seif-bkh/raglab-service:<version>     # + :latest
+elayarifarah/raglab-service:<version>     # + :latest (Docker Hub)
 GitHub Release <tag> → raglab-service-<version>.tar.gz (Linux/macOS targets)
                        raglab-service-<version>.zip    (Windows targets)
                        raglab-service-<version>.sha256  (one file, both artifacts)
@@ -49,20 +49,19 @@ Manual alternative: *Actions → RAGLab docker image → Run workflow* with
 `raglab/service.py` (bump it → push → `git tag v<x.y.z>` → push the tag;
 the workflow warns when they diverge).
 
-First-time one-time step: after the first GHCR push the package is **private**
-— flip it to public once (repo → Packages → *raglab-service* → Package
-settings → Change visibility), or run it behind an authenticated pull.
+Authentication in CI uses the `DOCKER_HUB_ACCESS_TOKEN` secret for Docker Hub
+account `elayarifarah` (`docker login -u elayarifarah`).
 
 Run it:
 
 ```bash
-docker pull ghcr.io/seif-bkh/raglab-service:1.2.5
+docker pull elayarifarah/raglab-service:1.2.5
 docker run -d --name raglab -p 8000:8000 --env-file raglab/.env \
   -e RAGLAB_SERVICE_TOKEN=your-long-random-token \
   -v raglab-index:/app/raglab/chroma_db \
   -v raglab-embed-cache:/app/raglab/caches \
   -v raglab-documents:/app/raglab/documents \
-  ghcr.io/seif-bkh/raglab-service:1.2.5
+  elayarifarah/raglab-service:1.2.5
 # API docs: http://localhost:8000/docs
 ```
 
@@ -96,7 +95,7 @@ docker/load-image.sh raglab-service_1.2.5.tar.gz     # verifies sha256, docker l
 ```
 
 The helpers print the exact `docker run` line; the reference after load is
-always `ghcr.io/seif-bkh/raglab-service:<version>`.
+always `elayarifarah/raglab-service:<version>`.
 
 ### C) Compose, image-only (no build, no dev Dockerfile)
 

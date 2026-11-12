@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."   # repo root
 
 VERSION="${1:-$(sed -n 's/^SERVICE_VERSION = "\([^"]*\)".*/\1/p' raglab/service.py | head -1)}"
 [ -n "$VERSION" ] || { echo "no version given and SERVICE_VERSION not found in raglab/service.py"; exit 1; }
-IMAGE="ghcr.io/seif-bkh/raglab-service"
+IMAGE="elayarifarah/raglab-service"
 VCS_REF="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 echo "[save-image] building $IMAGE:$VERSION (+ :latest) from Dockerfile.prod ..."

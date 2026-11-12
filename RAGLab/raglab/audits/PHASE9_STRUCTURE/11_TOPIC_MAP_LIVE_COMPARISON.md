@@ -34,7 +34,7 @@
 | `TM05-early-islamic-finance` | نعم ← نعم | `t249, t250` | `definitional` ← `non_banking`؛ لا تصنيف متوقع |
 | `TM06-off-corpus-balcony-mint` | — ← — | لا شيء | `non_banking` ← `non_banking`؛ يطابق المتوقع |
 
-**حدود الاطلاع:** ظهر artifact `phase9-topic-map-live-probe` للـrun، لكن تنزيله وسجل الـjob من هذه البيئة انتهى بـ`EOF`. لذلك استند الفحص أعلاه إلى check-run annotation المتاح عبر GitHub API، وفيه المقاييس ومخرجات مختصرة لكل حالة؛ لم تُفحص ملفات JSON/Markdown أو الاستجابات الخام كاملة محليًا. يمكن فتح الـrun وتنزيل artifact من واجهة GitHub Actions: [run 37251040562](https://github.com/seif-bkh/RAGLab/actions/runs/37251040562).
+**حدود الاطلاع:** ظهر artifact `phase9-topic-map-live-probe` للـrun، لكن تنزيله وسجل الـjob من هذه البيئة انتهى بـ`EOF`. لذلك استند الفحص أعلاه إلى check-run annotation المتاح عبر GitHub API، وفيه المقاييس ومخرجات مختصرة لكل حالة؛ لم تُفحص ملفات JSON/Markdown أو الاستجابات الخام كاملة محليًا. يمكن فتح الـrun وتنزيل artifact من واجهة GitHub Actions (run `37251040562`).
 
 ## تشغيل آمن ومحدود
 

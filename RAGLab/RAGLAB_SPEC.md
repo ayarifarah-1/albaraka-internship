@@ -1,6 +1,6 @@
 # RAGLab — Reverse-Engineering Technical Specification
 
-**Repository:** `seif-bkh/RAGLab`, branch `arena/01a08139-raglab` @ `7ec1814` (service version **1.2.5**, `raglab/service.py:111`).
+**Repository:** `RAGLab` (owner: **Ayari Farah** / `elayarifarah`), service version **1.2.5** (`raglab/service.py`).
 **Method:** static read-only investigation of every Python module, the docs trio, Docker/CI files and config templates. No file in the repository was modified.
 **Evidence labels:** **Observed** = directly seen in code/files; **Inferred** = reasoned from code behavior; **Unknown** = not determinable from the repository.
 **Secrets:** no secret values are reproduced. Only environment-variable *names* are listed.

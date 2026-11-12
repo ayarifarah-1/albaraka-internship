@@ -1,6 +1,6 @@
-# Al Baraka Bank Assistant & RAGLab — حزمة التشغيل الجاهزة (`albaraka-demo`)
+# Al Baraka Bank Assistant & RAGLab — Pack de déploiement autonome (`albaraka-demo`)
 
-حزمة تشغيل مستقلة للمنصة بالكامل عبر **Docker** فقط (بدون الحاجة إلى الكود المصدري أو تثبيت Java / Node.js / Python)، تسحب الصور الجاهزة مباشرة من حساب **Ayari Farah** (`elayarifarah`) على Docker Hub:
+Pack d'exécution autonome permettant de lancer l'intégralité de la plateforme via **Docker** uniquement (sans code source et sans installer Java, Node.js ou Python), à partir des images publiées sur le compte Docker Hub d'**Ayari Farah** (`elayarifarah`) :
 
 - `elayarifarah/albaraka-raglab:latest`
 - `elayarifarah/albaraka-backend:latest`
@@ -8,63 +8,70 @@
 
 ---
 
-## 1. المتطلبات
-- تثبيت وتشغيل **Docker Desktop** (على Windows / macOS) أو **Docker Engine + Compose** (على Linux).
-- توفير المنفذ `8080` على الجهاز.
+## 1. Prérequis
+
+- **Docker Desktop** (Windows / macOS) ou **Docker Engine + Docker Compose** (Linux) installé et démarré.
+- Le port local `8080` disponible sur la machine.
 
 ---
 
-## 2. خطوات التشغيل السريع
+## 2. Démarrage rapide
 
-### الخطوة 1 — مفاتيح الـ API (اختياري قبل التشغيل أو من الواجهة بعده)
-افتح ملف `config/api-keys.env` وضع مفاتيح المزوّدين:
+### Étape 1 — Clés API (avant le lancement ou depuis l'interface web)
+Ouvrez le fichier `config/api-keys.env` et renseignez vos clés fournisseurs :
+
 ```env
 NVIDIA_API_KEY=nvapi-...
 XKIRO_API_KEY=sk-...
 ```
-> **ملاحظة:** يمكنك ترك الملف فارغًا الآن وإدخال المفاتيح مباشرة من لوحة التحكم بعد فتح المتصفح.
 
-### الخطوة 2 — تشغيل المنصة
-افتح الطرفية (Terminal / PowerShell) داخل مجلد `albaraka-demo` ونفّذ:
+> **Astuce :** vous pouvez laisser ce fichier vide au premier lancement et saisir ou modifier vos clés directement depuis le back-office une fois l'application ouverte. Toute modification effectuée dans l'interface est automatiquement enregistrée dans `config/api-keys.env`.
+
+### Étape 2 — Lancer la plateforme
+Ouvrez un terminal (PowerShell / Bash) dans le dossier `albaraka-demo` puis exécutez :
+
 ```bash
 docker compose pull
 docker compose up -d
 ```
-*(أو شغّل `start.bat` على Windows / `./start.sh` على Linux & macOS).*
 
-انتظر حوالي 30–60 ثانية حتى تكتمل جاهزية الحاويات (`docker compose ps`)، ثم افتح المتصفح على:
-- **الرابط:** `http://localhost:8080`
+*(Vous pouvez également lancer `start.bat` sous Windows ou `./start.sh` sous Linux / macOS).*
+
+Patientez environ 30 à 60 secondes jusqu'à ce que tous les conteneurs soient prêts (`docker compose ps`), puis ouvrez votre navigateur sur :
+
+- **Application web :** `http://localhost:8080`
 
 ---
 
-## 3. حسابات الدخول التجريبية
+## 3. Comptes de démonstration par défaut
 
-| الدور | البريد الإلكتروني | كلمة المرور |
+| Rôle | Adresse e-mail | Mot de passe |
 | :--- | :--- | :--- |
-| مدير المنصة (Admin) | `admin@albaraka.tn` | `postgres` |
-| واجهة العميل (Client) | `client@albaraka.tn` | `client123` |
+| Administrateur (Back-office) | `admin@albaraka.tn` | `postgres` |
+| Portail Client | `client@albaraka.tn` | `client123` |
 
 ---
 
-## 4. تهيئة الفهرس لأول مرة (مرّة واحدة فقط)
-1. سجّل الدخول بحساب المدير (`admin@albaraka.tn` / `postgres`).
-2. إذا لم تكن قد وضعت مفاتيح الـ API في `config/api-keys.env`، ادخل إلى:
-   **Administration → RAGLab → Paramètres → Clés API (`.env`)** واحفظ مفاتيحك.
-3. ادخل إلى **Administration → RAGLab → Corpus / Statut** واضغط على زر الفهرسة لبناء فهرس المتجهات فوق الوثائق المدمجة (تستغرق حوالي دقيقة واحدة أول مرة فقط، وتبقى محفوظة تلقائيًا في وحدة التخزين الدائمة).
+## 4. Indexation initiale du corpus (une seule fois)
+
+1. Connectez-vous sur `http://localhost:8080` avec le compte administrateur (`admin@albaraka.tn` / `postgres`).
+2. Si vous n'avez pas encore renseigné vos clés API dans `config/api-keys.env`, rendez-vous dans **Administration → RAGLab → Paramètres → Clés API (`.env`)** et enregistrez vos clés.
+3. Rendez-vous dans **Administration → RAGLab → Corpus / Statut** puis lancez l'indexation afin de construire l'index vectoriel sur les documents bancaires intégrés (environ une minute lors de la toute première exécution ; l'index reste ensuite conservé dans un volume Docker persistant).
 
 ---
 
-## 5. أوامر مفيدة
+## 5. Commandes utiles
+
 ```bash
-# متابعة حالة الحاويات
+# Vérifier l'état des conteneurs
 docker compose ps
 
-# عرض السجلات الحية
+# Consulter les journaux en temps réel
 docker compose logs -f
 
-# إيقاف المنصة مع الاحتفاظ بقاعدة البيانات والفهرس
+# Arrêter la plateforme en conservant la base de données et l'index vectoriel
 docker compose down
 
-# إيقاف المنصة وحذف جميع البيانات (إعادة ضبط كاملة)
+# Arrêter la plateforme et réinitialiser toutes les données (remise à zéro complète)
 docker compose down -v
 ```

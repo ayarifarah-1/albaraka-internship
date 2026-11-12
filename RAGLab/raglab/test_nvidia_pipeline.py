@@ -3306,13 +3306,31 @@ class SoftRefusalWordingTest(unittest.TestCase):
                 "evidence_insufficient", "ar"))
 
     def test_missing_requirements_used_when_no_clarifications(self):
-        from answer import compose_refusal
+        from answer import compose_refusal, refusal_message
         out = compose_refusal(
             "evidence_insufficient", "ar",
             referral={"missing_requirements": ["procedural_evidence"],
                       "clarifications": []}, enabled=True)
-        self.assertIn("procedural_evidence", out)
-        self.assertIn("أقرب ما فيها", out)
+        self.assertNotIn("procedural_evidence", out)
+        self.assertIn("الإجراءات والشروط", out)
+        # generic `wide_evidence` never leaks raw snake_case into any language
+        for lang in ("ar", "fr", "en"):
+            clean = compose_refusal(
+                "evidence_insufficient", lang,
+                referral={"missing_requirements": ["wide_evidence"],
+                          "clarifications": []}, enabled=True)
+            self.assertNotIn("wide_evidence", clean)
+            self.assertEqual(clean, refusal_message("evidence_insufficient", lang))
+
+    def test_concept_not_shadowed_by_internal_missing_requirements(self):
+        from answer import compose_refusal
+        ar = compose_refusal(
+            "evidence_insufficient", "ar",
+            referral={"missing_requirements": ["wide_evidence"],
+                      "clarifications": []},
+            understood_as="من هو المضارب بالعمل؟", enabled=True)
+        self.assertEqual(
+            ar, "إن كنت تقصد «من هو المضارب بالعمل؟»، فإني لا أملك جوابًا صريحًا.")
 
     def test_concept_only_branch_quotes_understood_as(self):
         from answer import compose_refusal

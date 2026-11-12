@@ -259,6 +259,18 @@ class ServiceTest(unittest.TestCase):
             self.assertIn("evidence_status", body)
             self.assertIn("requirements_covered", body)
 
+            # Default config (ANSWER_SUFFICIENCY_COMMITMENT=0) must NEVER block
+            # cross-script / morphological questions before the LLM runs, even
+            # when lexical anchoring reports غير كافٍ.
+            for multilingual_q in (
+                "what are the types of fundings?",
+                "qu'elles sont les differentes types de financement?",
+                "ما هي مختلف التمويلات المتاحة؟",
+            ):
+                resp = client.post("/answer", json={"question": multilingual_q}).json()
+                self.assertEqual(resp["status"], "answered", resp)
+                self.assertTrue(resp["inference_performed"], resp)
+
             opt = dict(overrides)
             opt["SUFFICIENCY_FIELDS_ENABLED"] = False
             opt["ANSWER_SUFFICIENCY_COMMITMENT"] = False
@@ -529,6 +541,9 @@ class SufficiencyCommitmentTest(unittest.TestCase):
         self.assertEqual(body["referral"]["missing_requirements"],
                          body["requirements_missing"])
         self.assertIn("evidence", body["refusal_reason"])
+        for internal_code in ("wide_evidence", "procedural_evidence",
+                              "definition_or_purpose_unit"):
+            self.assertNotIn(internal_code, body["answer"])
 
     def test_partial_downgrade_one_bounded_regeneration(self):
         # sufficiency mocked to «غير كافٍ with one covered requirement» —

@@ -173,6 +173,7 @@ export class RaglabAskComponent implements OnInit {
   reasonLabel(reason?: string): string {
     switch (reason) {
       case 'insufficient_evidence':
+      case 'evidence_insufficient':
         return 'Preuves documentaires insuffisantes';
       case 'no_context':
         return 'Aucun contexte trouvé dans le corpus';

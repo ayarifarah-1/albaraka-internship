@@ -117,20 +117,89 @@ SOFT_REFUSAL_BRIDGES: dict[str, dict[str, str]] = {
         "fr": "Si vous vouliez dire « {concept} », je n’ai pas de réponse explicite.",
         "en": "If you meant “{concept}”, I don’t have an explicit answer.",
     },
+    "missing": {
+        "ar": "لا أملك جوابًا صريحًا مدعومًا بالمستندات عن سؤالك لعدم توفّر نص يغطّي: {missing}",
+        "fr": "Je n’ai pas de réponse explicite fondée sur les documents, faute de passage couvrant : {missing}",
+        "en": "I don’t have an explicit document-backed answer because the documents lack material covering: {missing}",
+    },
 }
+
+REQUIREMENT_LABELS: dict[str, dict[str, str]] = {
+    "definition_or_purpose_unit": {
+        "ar": "التعريف أو الغرض",
+        "fr": "la définition ou la finalité",
+        "en": "the definition or purpose",
+    },
+    "numeric_evidence": {
+        "ar": "القيم الرقمية أو النِّسب أو الآجال",
+        "fr": "les montants, taux ou délais",
+        "en": "specific amounts, rates, or deadlines",
+    },
+    "penalty_unit": {
+        "ar": "العقوبات أو الخطايا المقرّرة",
+        "fr": "les sanctions ou pénalités",
+        "en": "applicable penalties or sanctions",
+    },
+    "with_governing_rule": {
+        "ar": "الفصل القانوني المنظِّم",
+        "fr": "l’article réglementaire applicable",
+        "en": "the governing legal article",
+    },
+    "exception_with_rule": {
+        "ar": "الاستثناءات المنصوص عليها",
+        "fr": "les exceptions prévues",
+        "en": "explicitly stated exceptions",
+    },
+    "procedural_evidence": {
+        "ar": "الإجراءات والشروط المنظِّمة",
+        "fr": "les procédures et conditions applicables",
+        "en": "applicable procedures and conditions",
+    },
+    "both_sides_evidence": {
+        "ar": "جميع عناصر المقارنة المطلوبة",
+        "fr": "l’ensemble des éléments comparés",
+        "en": "all requested comparison sides",
+    },
+}
+
+_INTERNAL_CODE_RE = re.compile(r"^[a-z][a-z0-9_]*_[a-z0-9_]+$")
 
 
 def _refusal_referral_text(referral: dict | None) -> str:
-    """Flatten a referral payload to one display string. Curated
-    clarifications win; when absent, the missing requirements name the gap."""
+    """Flatten curated human-facing clarifications from a referral payload."""
     if not isinstance(referral, dict):
         return ""
-    parts = [str(p) for p in (referral.get("clarifications") or [])
-             if str(p).strip()]
-    if not parts:
-        parts = [str(p) for p in (referral.get("missing_requirements") or [])
-                 if str(p).strip()]
+    parts = [str(p).strip() for p in (referral.get("clarifications") or [])
+             if str(p).strip() and not _INTERNAL_CODE_RE.match(str(p).strip())]
     return "؛ ".join(parts)
+
+
+def _refusal_missing_text(referral: dict | None, lang: str) -> str:
+    """Translate specific missing requirement codes into human-facing labels.
+
+    Generic `wide_evidence` and unknown raw snake_case identifiers are never
+    surfaced verbatim to end users.
+    """
+    if not isinstance(referral, dict):
+        return ""
+    sep = "؛ " if lang == "ar" else "; "
+    labels: list[str] = []
+    seen: set[str] = set()
+    for raw in referral.get("missing_requirements") or ():
+        token = str(raw).strip()
+        if not token or token == "wide_evidence":
+            continue
+        mapped = REQUIREMENT_LABELS.get(token)
+        if mapped is not None:
+            label = mapped.get(lang) or mapped["en"]
+        elif _INTERNAL_CODE_RE.match(token):
+            continue
+        else:
+            label = token
+        if label not in seen:
+            seen.add(label)
+            labels.append(label)
+    return sep.join(labels)
 
 
 def compose_refusal(reason: str | None, language: str, *,
@@ -155,8 +224,12 @@ def compose_refusal(reason: str | None, language: str, *,
         return SOFT_REFUSAL_BRIDGES["referral"][lang].format(
             referral=referral_text)
     concept = (understood_as or "").strip()
-    if concept:
+    if concept and not _INTERNAL_CODE_RE.match(concept):
         return SOFT_REFUSAL_BRIDGES["concept"][lang].format(concept=concept)
+    missing_text = _refusal_missing_text(referral, lang)
+    if missing_text:
+        return SOFT_REFUSAL_BRIDGES["missing"][lang].format(
+            missing=missing_text)
     return base
 
 

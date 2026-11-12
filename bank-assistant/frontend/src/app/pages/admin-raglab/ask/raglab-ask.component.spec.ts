@@ -78,5 +78,6 @@ describe('RaglabAskComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.textContent).toContain('Réponse sécurisée');
     expect(compiled.textContent).toContain('Données personnelles ou temps réel non accessibles');
+    expect(component.reasonLabel('evidence_insufficient')).toBe('Preuves documentaires insuffisantes');
   });
 });

@@ -37,7 +37,7 @@
           <div class="loader-spinner"></div>
           <div class="loader-content">
             <div class="loader-step">{{ turn.loadingStep }}</div>
-            <div class="loader-subcopy">Le filtre de citation vérifie chaque affirmation mot à mot avant restitution.</div>
+            <div class="loader-subcopy">Synthèse fondée sur les fragments récupérés et vérification des sources citées.</div>
           </div>
         </div>
       </div>
@@ -113,7 +113,7 @@
             <div class="section-toggle-header" (click)="turn.claimsExpanded = !turn.claimsExpanded">
               <div class="section-header-left">
                 <span class="toggle-icon">{{ turn.claimsExpanded ? '▼' : '▶' }}</span>
-                <span class="section-title">Affirmations &amp; Preuves mot à mot</span>
+                <span class="section-title">Affirmations synthétisées &amp; Sources d'appui</span>
                 <span class="count-pill">{{ turn.response.claims.length }}</span>
               </div>
               <span class="section-toggle-hint">{{ turn.claimsExpanded ? 'Réduire' : 'Déplier' }}</span>
@@ -136,7 +136,7 @@
                                 title="Faire défiler jusqu'à la source">
                           [{{ ev.source_id }}]
                         </button>
-                        <span class="verified-label">Citation vérifiée dans la langue source</span>
+                        <span class="verified-label">Extrait du document cité</span>
                       </div>
                       <button type="button" class="btn-copy-quote"
                               (click)="copyQuote(ev.quote, turn.id + '_' + cIdx + '_' + evIdx)">

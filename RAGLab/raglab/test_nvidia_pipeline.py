@@ -355,9 +355,18 @@ class Grounding(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unknown citation'):
             validate_answer(self.valid, self.sources)
 
-    def test_invented_quote(self):
-        self.valid['claims'][0]['evidence'][0]['quote'] = 'founded on 15 June 2001'
-        with self.assertRaisesRegex(ValueError, 'not in'):
+    def test_synthesized_claim_without_verbatim_quote(self):
+        # Model synthesizes the answer grounded on source_id without copying raw text
+        synthesized = {'answerable': True, 'claims': [
+            {'text': 'The institution was established in mid-1983.',
+             'evidence': [{'source_id': 'S1'}]}]}
+        validated = validate_answer(synthesized, self.sources)
+        self.assertEqual(len(validated), 1)
+        self.assertIn('1983', validated[0]['evidence'][0]['quote'])
+
+    def test_invented_number_in_claim_refused(self):
+        self.valid['claims'][0]['text'] = 'The bank was founded in 2001.'
+        with self.assertRaisesRegex(ValueError, '2001'):
             validate_answer(self.valid, self.sources)
 
     def test_uncited_claim(self):

@@ -1209,6 +1209,15 @@ except answer_mod.UnsourcedNumber as _exc:
     check("answer: gate refuses a claim with a number its evidence lacks",
           "99" in str(_exc))
 
+_synth_claims = answer_mod.validate_answer(
+    {"answerable": True, "claims": [
+        {"text": "Murabaha is a cost-plus sale transaction upon a client's purchase order.",
+         "evidence": [{"source_id": "S1"}]}]},
+    [{"source_id": "S1",
+      "text": "### الفصل 12\nتعتبر مرابحة على معنى هذا القانون كل عملية بيع بناء على طلب الأمر بالشراء لدى طرف ثالث."}])
+check("answer: gate accepts synthesized claim grounded by source_id without verbatim quote",
+      len(_synth_claims) == 1 and "طرف ثالث" in _synth_claims[0]["evidence"][0]["quote"])
+
 _scrub_cases = [
     ("mail support@atlas.tn", "mail [EMAIL]"),
     ("call +216 71 123 456", "call [PHONE]"),

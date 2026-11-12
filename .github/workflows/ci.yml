@@ -1,0 +1,456 @@
+# ============================================================
+# Al Baraka Internship Monorepo — Unified CI (RAGLab + Bank Assistant)
+#
+# Runs zero-API-cost verification across both RAGLab (offline tests + Docker
+# image build/import smoke) and Bank Assistant (Postgres migrations, Spring
+# Boot Maven verify, Angular build + Nginx container + Vitest suite, optional
+# SonarQube). Path-filtered so routine pushes only build touched subsystems,
+# while workflow changes or manual dispatches exercise the entire monorepo.
+# ============================================================
+name: CI
+
+on:
+  push:
+    branches: ["master", "main", "arena/**"]
+  pull_request:
+    branches: ["master", "main"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write     # allow failure diagnostics to post log tails when needed
+  actions: write    # required by actions/upload-artifact
+
+jobs:
+  # ----------------------------------------------------------
+  # Detect which monorepo areas changed in this push / PR.
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      raglab: ${{ steps.filter.outputs.raglab }}
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      workflow: ${{ steps.filter.outputs.workflow }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          base: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.event.before || '' }}
+          filters: |
+            raglab:
+              - 'RAGLab/**'
+            backend:
+              - 'bank-assistant/backend/**'
+              - 'bank-assistant/scripts/**'
+              - 'bank-assistant/docker-compose*.yml'
+            frontend:
+              - 'bank-assistant/frontend/**'
+            workflow:
+              - '.github/workflows/**'
+              - 'bank-assistant/sonar-project.properties'
+              - 'bank-assistant/ci/**'
+              - 'bank-assistant/e2e/**'
+
+  # ----------------------------------------------------------
+  # RAGLab: offline compile + unit/service tests + corpus inspect (zero API calls)
+  raglab-offline:
+    name: RAGLab — Compile + offline tests
+    needs: changes
+    if: >-
+      needs.changes.outputs.raglab == 'true'
+      || needs.changes.outputs.workflow == 'true'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: RAGLab/raglab/requirements-benchmark.txt
+
+      - name: Install dependencies
+        working-directory: RAGLab/raglab
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-benchmark.txt -r requirements-service.txt
+
+      - name: Compile all modules
+        working-directory: RAGLab/raglab
+        run: python -m compileall -q .
+
+      - name: Offline regression + service tests (no external API calls)
+        working-directory: RAGLab/raglab
+        run: |
+          set -o pipefail
+          python tests_offline.py 2>&1 | tee /tmp/offline_main.txt
+          python -m unittest -v test_nvidia_pipeline test_hard_harness test_service 2>&1 | tee -a /tmp/offline_main.txt
+
+      - name: Report offline failure via check-run annotation
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          summary=$(grep -aE "^(FAIL|ERROR:|Ran |OK$|FAILED)" /tmp/offline_main.txt 2>/dev/null | tail -30)
+          detail=$(grep -aA 15 -E "^(FAIL|ERROR:)" /tmp/offline_main.txt 2>/dev/null | tail -c 1800)
+          tail_full=$(tail -c 900 /tmp/offline_main.txt 2>/dev/null)
+          message=$(printf 'summary:\n%s\n----detail----\n%s\n----tail----\n%s' "$summary" "$detail" "$tail_full" \
+            | sed -e 's/%/%25/g' -e 's/:/%3A/g' | tr '\n' '|')
+          echo "::error::raglab offline failure: $message"
+
+      - name: Offline inspect (load + chunk only, zero API calls)
+        working-directory: RAGLab/raglab
+        run: python main.py inspect
+
+      - name: Dependency sanity
+        run: python -m pip check
+
+  # ----------------------------------------------------------
+  # RAGLab: Docker image build + module import smoke
+  raglab-docker:
+    name: RAGLab — Docker build + import smoke
+    needs: changes
+    if: >-
+      needs.changes.outputs.raglab == 'true'
+      || needs.changes.outputs.workflow == 'true'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: RAGLab
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build RAGLab service image
+        run: docker build -t raglab-service .
+
+      - name: Import smoke — requirements-service.txt completeness
+        run: >
+          docker run --rm --entrypoint python raglab-service
+          -c "import service, profiles, answer, sufficiency, micro_retrieval, models_probe; print('image imports OK')"
+
+  # ----------------------------------------------------------
+  # Bank Assistant: Flyway SQL migrations on real pgvector Postgres 16
+  migrations:
+    name: Bank Assistant — Migrations (Postgres)
+    needs: changes
+    if: >-
+      needs.changes.outputs.backend == 'true'
+      || needs.changes.outputs.workflow == 'true'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bank-assistant
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: banque_assistant
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply every migration in order
+        env:
+          PGPASSWORD: postgres
+        run: |
+          exec > >(tee /tmp/migrations.log) 2>&1
+          set -euo pipefail
+          M=backend/src/main/resources/db/migration
+
+          for f in $(ls $M/V*.sql | sort -V | grep -v 'V15__'); do
+            echo "== $f"
+            psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d banque_assistant -q -f "$f"
+          done
+
+          echo "== legacy rows: one client, an EPARGNE and a DEPOT account"
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d banque_assistant -q <<'SQL'
+          INSERT INTO clients (email, mot_de_passe, nom, prenom, role, actif)
+          VALUES ('legacy@test.tn', 'x', 'Ben Salah', 'Yassine', 'UTILISATEUR', true);
+          INSERT INTO comptes (client_id, libelle, type, iban, devise, solde, date_ouverture)
+          SELECT id, 'Épargne CEAI', 'EPARGNE', 'TN59LEGACY000000000001', 'TND', 6292.000, now()
+          FROM clients WHERE email = 'legacy@test.tn';
+          INSERT INTO comptes (client_id, libelle, type, iban, devise, solde, date_ouverture)
+          SELECT id, 'Dépôt à terme', 'DEPOT', 'TN59LEGACY000000000002', 'TND', 20000.000, now()
+          FROM clients WHERE email = 'legacy@test.tn';
+          INSERT INTO cartes (client_id, type, reseau, porteur, expiration, plafond_journalier, bloque)
+          SELECT id, 'EVASION', 'mastercard', '4571 **** **** 0001', '09/29', 1000, false
+          FROM clients WHERE email = 'legacy@test.tn';
+          INSERT INTO cartes (client_id, type, reseau, porteur, expiration, plafond_journalier, bloque)
+          SELECT id, 'GOLD', '', '5213 **** **** 0002', '03/28', 1500, false
+          FROM clients WHERE email = 'legacy@test.tn';
+          SQL
+
+          echo "== V15 onwards"
+          for f in $(ls $M/V*.sql | sort -V | grep 'V15__'); do
+            psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d banque_assistant -q -f "$f"
+          done
+
+          echo "== the rename actually happened"
+          psql -h localhost -U postgres -d banque_assistant -tAc \
+            "SELECT string_agg(type, ',' ORDER BY type) FROM comptes WHERE iban LIKE 'TN59LEGACY%'" \
+            | grep -qx 'COMPTE_EPARGNE,DEPOT_INVESTISSEMENT'
+
+          echo "== card networks were normalised"
+          psql -h localhost -U postgres -d banque_assistant -tAc \
+            "SELECT string_agg(reseau, ',' ORDER BY porteur) FROM cartes WHERE porteur LIKE '%000%'" \
+            | grep -qx 'MASTERCARD,MASTERCARD'
+
+          echo "== applying V15 again (idempotence)"
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d banque_assistant -q \
+            -f $M/V15__customer_banking_model.sql > /dev/null
+
+      - name: Assert the V15 guarantees hold
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d banque_assistant -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO clients (email, mot_de_passe, role) VALUES ('x@test.tn', 'x', 'SUPER_ADMIN')" \
+            && { echo '::error::a client accepted a staff role'; exit 1; } || echo "clients reject staff roles"
+          psql -h localhost -U postgres -d banque_assistant -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO admin_roles (code, name, is_system, is_staff, active) VALUES ('CLIENT_X', 'x', false, false, true)" \
+            && { echo '::error::a non-staff role was created'; exit 1; } || echo "non-staff roles are limited to UTILISATEUR"
+
+      - name: Publish diagnostics (failure)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.run_id }}
+          REF: ${{ github.ref }}
+        run: |
+          msg=$(tail -c 1600 /tmp/migrations.log 2>/dev/null | sed -e 's/%/%25/g' -e 's/:/%3A/g' | tr '\n' '|')
+          echo "::error::migrations failure: $msg"
+          echo "## CI diagnostics — migrations job (run ${RUN}, $REF)" > /tmp/diag.md
+          echo '```' >> /tmp/diag.md
+          tail -n 80 /tmp/migrations.log >> /tmp/diag.md 2>/dev/null || echo 'no log captured' >> /tmp/diag.md
+          echo '```' >> /tmp/diag.md
+          gh issue create --repo "$REPO" --title "CI FAIL migrations $REF (run $RUN)" \
+            --body "$(cat /tmp/diag.md)" \
+            || echo "::warning::could not create diagnostics issue"
+
+  # ----------------------------------------------------------
+  # Bank Assistant: Spring Boot 4 backend (YAML lint + Maven verify + Flyway JAR check)
+  backend:
+    name: Bank Assistant — Backend (Spring Boot)
+    needs: changes
+    if: >-
+      needs.changes.outputs.backend == 'true'
+      || needs.changes.outputs.workflow == 'true'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bank-assistant/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: bank-assistant/backend/pom.xml
+
+      - name: Lint YAML configs & workflows (duplicate keys break startup)
+        run: |
+          pip install -q pyyaml
+          python3 ../scripts/check_yaml_dupes.py \
+            src/main/resources/*.yml \
+            src/test/resources/*.yml \
+            ../docker-compose*.yml \
+            ../../RAGLab/docker-compose*.yml \
+            ../../.github/workflows/*.yml
+
+      - name: Build (compile + tests)
+        run: |
+          set +e
+          mvn -B -ntp clean verify > /tmp/backend.log 2>&1
+          rc=$?
+          tail -n 200 /tmp/backend.log
+          exit $rc
+
+      - name: Assert Flyway auto-config is packaged (Boot 4 needs the starter)
+        run: unzip -l target/*.jar | grep -q 'spring-boot-flyway-' || { echo '::error::spring-boot-flyway missing from the JAR — schema would never be migrated'; exit 1; }
+
+      - name: Upload JAR
+        if: success()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: bank-assistant/backend/target/*.jar
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish diagnostics (failure)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.run_id }}
+          REF: ${{ github.ref }}
+        run: |
+          msg=$(tail -c 1800 /tmp/backend.log 2>/dev/null | sed -e 's/%/%25/g' -e 's/:/%3A/g' | tr '\n' '|')
+          echo "::error::backend failure: $msg"
+          echo "## CI diagnostics — backend job (run ${RUN}, $REF)" > /tmp/diag.md
+          echo "" >> /tmp/diag.md
+          echo '```' >> /tmp/diag.md
+          tail -n 200 /tmp/backend.log >> /tmp/diag.md 2>/dev/null || true
+          echo '```' >> /tmp/diag.md
+          gh issue create --repo "$REPO" --title "CI FAIL backend $REF (run $RUN)" \
+            --body "$(cat /tmp/diag.md)" \
+            || echo "::warning::could not create diagnostics issue"
+
+  # ----------------------------------------------------------
+  # Bank Assistant: Angular 21 frontend (build + Nginx container + Vitest coverage)
+  frontend:
+    name: Bank Assistant — Frontend (Angular)
+    needs: changes
+    if: >-
+      needs.changes.outputs.frontend == 'true'
+      || needs.changes.outputs.workflow == 'true'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bank-assistant/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: bank-assistant/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Production build
+        run: npm run build
+
+      - name: Build frontend container and verify served version metadata
+        run: |
+          docker build --build-arg GIT_SHA=ci-check --build-arg BUILD_TIME=ci-check \
+            --tag bank-assistant-frontend:ci .
+          docker run --rm --entrypoint sh bank-assistant-frontend:ci -c \
+            'test -s /usr/share/nginx/html/version.json && grep -Fq "\"sha\":\"ci-check\"" /usr/share/nginx/html/version.json'
+
+      - name: Unit tests
+        run: npm test -- --watch=false
+
+      - name: Upload build output
+        if: success()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: bank-assistant/frontend/dist
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish diagnostics (failure)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.run_id }}
+          REF: ${{ github.ref }}
+        run: |
+          echo "::error::frontend job failed — inspect failed step."
+          echo "## CI diagnostics — frontend job (run ${RUN}, $REF)" > /tmp/diag.md
+          echo "" >> /tmp/diag.md
+          echo 'frontend failure — see the job log for details.' >> /tmp/diag.md
+          gh issue create --repo "$REPO" --title "CI FAIL frontend $REF (run $RUN)" \
+            --body "$(cat /tmp/diag.md)" \
+            || echo "::warning::could not create diagnostics issue"
+
+  # ----------------------------------------------------------
+  # SonarQube / SonarCloud — OPTIONAL, skips cleanly when secrets are absent.
+  sonar:
+    name: Bank Assistant — SonarQube (optional)
+    needs: changes
+    if: >-
+      needs.changes.outputs.backend == 'true'
+      || needs.changes.outputs.frontend == 'true'
+      || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Is a Sonar server configured?
+        id: gate
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          if [ -n "$SONAR_TOKEN" ] && [ -n "$SONAR_HOST_URL" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Scanning $SONAR_HOST_URL" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=SonarQube skipped::SONAR_TOKEN / SONAR_HOST_URL are not set. See bank-assistant/docs/SONAR.md."
+            echo "**SonarQube skipped** — \`SONAR_TOKEN\` and \`SONAR_HOST_URL\` are not configured." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Set up JDK 21
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: bank-assistant/backend/pom.xml
+
+      - name: Backend build + tests + JaCoCo XML
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: bank-assistant/backend
+        run: mvn -B -ntp clean verify
+
+      - name: Set up Node 22
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: bank-assistant/frontend/package-lock.json
+
+      - name: Frontend tests + lcov
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: bank-assistant/frontend
+        run: |
+          npm ci
+          npm test -- --watch=false
+          ../scripts/lcov-rebase.sh
+
+      - name: Scan
+        if: steps.gate.outputs.enabled == 'true'
+        uses: SonarSource/sonarqube-scan-action@v5
+        with:
+          projectBaseDir: bank-assistant
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

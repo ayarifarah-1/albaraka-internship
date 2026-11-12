@@ -35,6 +35,7 @@ class RagLabClientTokenTests {
     private final AtomicReference<String> seenOnAnswer = new AtomicReference<>();
     private final AtomicReference<String> seenOnModels = new AtomicReference<>();
     private final AtomicReference<String> seenOnDocuments = new AtomicReference<>();
+    private final AtomicReference<String> seenOnEnvKeys = new AtomicReference<>();
 
     @BeforeEach
     void startServer() throws IOException {
@@ -55,6 +56,10 @@ class RagLabClientTokenTests {
             seenOnDocuments.set(exchange.getRequestHeaders().getFirst("X-Service-Token"));
             respond(exchange, 200, "{\"documents\":[]}");
         });
+        server.createContext("/env/keys", exchange -> {
+            seenOnEnvKeys.set(exchange.getRequestHeaders().getFirst("X-Service-Token"));
+            respond(exchange, 200, "{\"env_file\":{\"path\":\"raglab/.env\",\"exists\":true,\"writable\":true},\"keys\":[]}");
+        });
         server.start();
     }
 
@@ -71,11 +76,13 @@ class RagLabClientTokenTests {
         client.answer("quel est le tarif ?", null, null, null, null, null);
         client.models();
         client.documents();
+        client.envKeys();
 
         assertThat(seenOnHealth.get()).isEqualTo(TOKEN);
         assertThat(seenOnAnswer.get()).isEqualTo(TOKEN);
         assertThat(seenOnModels.get()).isEqualTo(TOKEN);
         assertThat(seenOnDocuments.get()).isEqualTo(TOKEN);
+        assertThat(seenOnEnvKeys.get()).isEqualTo(TOKEN);
     }
 
     @Test
@@ -86,11 +93,13 @@ class RagLabClientTokenTests {
         client.answer("quel est le tarif ?", null, null, null, null, null);
         client.models();
         client.documents();
+        client.envKeys();
 
         assertThat(seenOnHealth.get()).isNull();
         assertThat(seenOnAnswer.get()).isNull();
         assertThat(seenOnModels.get()).isNull();
         assertThat(seenOnDocuments.get()).isNull();
+        assertThat(seenOnEnvKeys.get()).isNull();
     }
 
     /** A client pointed at the test server, with {@code token} as the deployed secret. */

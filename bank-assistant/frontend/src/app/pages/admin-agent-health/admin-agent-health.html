@@ -4,6 +4,9 @@
     <p class="muted">Moteur RAG — où l'assistant va chercher ses réponses, et s'il répond.</p>
   </div>
   <div class="actions">
+    <a class="btn-secondary" routerLink="/admin/raglab/settings" [queryParams]="{ tab: 'keys' }">
+      Clés d'API (.env)
+    </a>
     <button class="btn-secondary" type="button" (click)="load()" [disabled]="loading">Actualiser</button>
     <button class="btn-primary" type="button" (click)="probe()"
             [disabled]="probing || !endpoint?.configured">

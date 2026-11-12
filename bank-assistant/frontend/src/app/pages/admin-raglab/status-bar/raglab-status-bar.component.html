@@ -56,16 +56,21 @@
     </span>
   </div>
 
-  <!-- 5. Keys -->
-  <div class="reading" [title]="!keysSummary().ok ? 'Manquantes : ' + missingKeys().join(', ') : 'Toutes les clés sont configurées'">
+  <!-- 5. Keys (raccourci direct vers raglab/.env) -->
+  <a
+    class="reading reading-link"
+    routerLink="/admin/raglab/settings"
+    [queryParams]="{ tab: 'keys' }"
+    [title]="!keysSummary().ok ? 'Manquantes : ' + missingKeys().join(', ') + ' — cliquer pour configurer dans raglab/.env' : 'Toutes les clés sont configurées — cliquer pour gérer raglab/.env'"
+  >
     <div class="reading-body">
-      <span class="reading-label">Clés</span>
+      <span class="reading-label">Clés (.env)</span>
       <span class="reading-value num">{{ keysSummary().set }}/{{ keysSummary().total }}</span>
     </div>
     @if (!keysSummary().ok) {
       <span class="chip chip-warn">manquantes</span>
     }
-  </div>
+  </a>
 
   <!-- 6. Ingest -->
   <div class="reading">

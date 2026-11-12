@@ -1,6 +1,7 @@
 import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterModule } from '@angular/router';
 
 import { AuthService } from '../../services/auth.service';
 import { AgentAdminService, AgentAuditEntry, AgentDiagnostics, AgentEndpoint }
@@ -17,7 +18,7 @@ import { AgentAdminService, AgentAuditEntry, AgentDiagnostics, AgentEndpoint }
 @Component({
   selector: 'app-admin-agent-health',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterModule],
   templateUrl: './admin-agent-health.html',
   styleUrl: './admin-agent-health.css',
 })

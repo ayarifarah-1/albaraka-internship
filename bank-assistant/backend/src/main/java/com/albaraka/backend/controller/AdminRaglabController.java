@@ -143,6 +143,46 @@ public class AdminRaglabController {
         return ResponseEntity.ok(JsonPayload.toPlain(res.payload()));
     }
 
+    /** List registered + custom .env API keys and raglab/.env writability (masked, never secret values). */
+    @GetMapping("/env/keys")
+    @PreAuthorize(READ)
+    public ResponseEntity<Object> envKeys() {
+        RagLabClient.Result res = raglab.envKeys();
+        return ResponseEntity.ok(JsonPayload.toPlain(res.payload()));
+    }
+
+    /** Create or rotate a registered or custom API key (persisted to raglab/.env by default; value never audited). */
+    @PostMapping("/env/keys")
+    @PreAuthorize(MANAGE)
+    public ResponseEntity<Object> setEnvKey(@RequestBody Map<String, Object> body, Authentication auth) {
+        String keyEnv = body.get("key_env") != null ? String.valueOf(body.get("key_env")).trim() : "unknown";
+        boolean persist = body.get("persist") == null || Boolean.TRUE.equals(body.get("persist"));
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("key_env", keyEnv);
+        payload.put("value", body.get("value"));
+        payload.put("persist", persist);
+        RagLabClient.Result res = raglab.setEnvKey(payload);
+        audit.record("RAGLAB_ENV_KEY_SET", keyEnv,
+                persist ? "Clé enregistrée dans raglab/.env" : "Clé définie en mémoire uniquement",
+                null, actor(auth), "OK");
+        return ResponseEntity.ok(JsonPayload.toPlain(res.payload()));
+    }
+
+    /** Delete a registered or custom API key from live process and (by default) raglab/.env. */
+    @DeleteMapping("/env/keys/{env}")
+    @PreAuthorize(MANAGE)
+    public ResponseEntity<Object> deleteEnvKey(@PathVariable String env,
+                                               @RequestParam(required = false, defaultValue = "true") Boolean persist,
+                                               Authentication auth) {
+        RagLabClient.Result res = raglab.deleteEnvKey(env, persist);
+        audit.record("RAGLAB_ENV_KEY_DELETE", env,
+                Boolean.TRUE.equals(persist)
+                        ? "Clé supprimée du service et de raglab/.env"
+                        : "Clé supprimée de la mémoire du service",
+                null, actor(auth), "OK");
+        return ResponseEntity.ok(JsonPayload.toPlain(res.payload()));
+    }
+
     /** Inspect corpus and chunk statistics. */
     @GetMapping("/inspect")
     @PreAuthorize(READ)

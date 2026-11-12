@@ -65,7 +65,7 @@
           </span>
           <span class="meta-badge lang-badge" *ngIf="turn.response.language">{{ turn.response.language | uppercase }}</span>
           <span class="meta-badge cache-badge" *ngIf="turn.response.cached">✓ Cache</span>
-          <span class="meta-badge no-ai-badge" *ngIf="turn.response.inference_performed === false">Sans appel IA</span>
+          <span class="meta-badge no-ai-badge" *ngIf="turn.response.inference_performed === false && !turn.response.seconds">Sans appel IA</span>
           <span class="meta-badge latency-badge" *ngIf="turn.response.seconds">
             ⚡ {{ turn.response.seconds | number:'1.1-2' }}s
           </span>

@@ -301,6 +301,21 @@ def query_vector(collection, query_embedding: list, k: int, lang: str = None,
 # ---------------------------------------------------------------------------
 
 
+# Latin function words ignored in BM25 query scoring so incidental English or
+# French chart captions inside an Arabic corpus (e.g. "Global Growth of Islamic
+# Finance By Assets") never get a kw_norm=1.0 boost from prepositions/articles
+# like "of", "by", "for", or "de".
+_BM25_LATIN_STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does",
+    "for", "from", "how", "i", "if", "in", "is", "it", "me", "my", "of",
+    "on", "or", "the", "to", "what", "which", "who", "with",
+    "au", "aux", "ce", "ces", "dans", "de", "des", "du", "en", "est", "et",
+    "je", "la", "le", "les", "ma", "mes", "mon", "ne", "ou", "par", "pas",
+    "pour", "qu", "que", "quel", "quelle", "quelles", "quels", "qui", "se",
+    "sont", "sur", "un", "une", "vos", "votre", "vous",
+})
+
+
 def _tokenize_kw(text: str) -> list[str]:
     """Lowercase word tokens; unicode-aware so Arabic is tokenized too."""
     return re.findall(r"[\w]+", text.casefold())
@@ -324,7 +339,8 @@ class BM25Index:
         self.n = len(texts)
 
     def score(self, query: str) -> list[float]:
-        q_tokens = _tokenize_kw(query)
+        q_tokens = [t for t in _tokenize_kw(query)
+                    if t not in _BM25_LATIN_STOPWORDS]
         scores = [0.0] * self.n
         for doc_idx, tokens in enumerate(self.tokenized):
             tf_counts = Counter(tokens)

@@ -1182,6 +1182,18 @@ check("answer: unsourced_numbers accepts re-grouped thousands",
 check("answer: unsourced_numbers ignores prose without digits",
       answer_mod.unsourced_numbers("no numbers here", ["none at all"]) == [])
 
+from store import BM25Index  # noqa: E402
+_bm25_sw = BM25Index(["Global Growth of Islamic Finance By Assets",
+                      "كل قرض جر نفعا فهو ربا"])
+check("store: BM25 ignores Latin function stopwords like 'of' in cross-script queries",
+      _bm25_sw.score("can i receive a loan of 10K TND?") == [0.0, 0.0])
+_prompt_sys = answer_mod.answer_messages(
+    "can i receive a loan of 10K TND?", "en",
+    [{"source_id": "S1", "text": "كل قرض جر نفعا فهو ربا"}])[0]["content"]
+check("answer: prompt instructs scoped concept grounding on unattested amounts",
+      "specific personal amount" in _prompt_sys
+      and "the requested amount" in _prompt_sys)
+
 _gate_sources = [{"source_id": "S1",
                   "text": "The Atlas card costs 10 dinars per year."}]
 try:

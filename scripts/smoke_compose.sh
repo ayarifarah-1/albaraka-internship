@@ -21,39 +21,49 @@ ADMIN_PASSWORD="${SMOKE_ADMIN_PASSWORD:-postgres}"
 pass=0
 fail=0
 ok()  { pass=$((pass + 1)); echo "  [OK]   $1"; }
-bad() { fail=$((fail + 1)); echo "  [FAIL] $1"; [ -n "${2:-}" ] && echo "         $2"; }
+bad() {
+  fail=$((fail + 1))
+  echo "  [FAIL] $1"
+  if [ -n "${2:-}" ]; then
+    echo "         $2"
+  fi
+  return 0
+}
 json() { python3 -c 'import json, sys; d = json.load(sys.stdin); print(eval(sys.argv[1], {"d": d}))' "$1"; }
 
 echo "==> 1. Frontend SPA + Nginx security headers ($BASE)"
 hdrs=$(curl -sS -D - -o /dev/null "$BASE/")
-echo "$hdrs" | grep -qi "^content-security-policy:" && ok "CSP header present" || bad "CSP header missing"
-echo "$hdrs" | grep -qi "^x-frame-options: DENY" && ok "X-Frame-Options DENY" || bad "X-Frame-Options missing"
-echo "$hdrs" | grep -qi "^server: nginx/" && bad "nginx version leaked" || ok "server_tokens off"
+if echo "$hdrs" | grep -qi "^content-security-policy:"; then ok "CSP header present"; else bad "CSP header missing"; fi
+if echo "$hdrs" | grep -qi "^x-frame-options: DENY"; then ok "X-Frame-Options DENY"; else bad "X-Frame-Options missing"; fi
+if echo "$hdrs" | grep -qi "^server: nginx/"; then bad "nginx version leaked"; else ok "server_tokens off"; fi
 ver_code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/version.json")
-[ "$ver_code" = "200" ] && ok "SPA /version.json served (200)" || bad "/version.json returned $ver_code"
+if [ "$ver_code" = "200" ]; then ok "SPA /version.json served (200)"; else bad "/version.json returned $ver_code"; fi
 
 echo "==> 2. Nginx -> Backend reverse proxy"
-curl -fsS "$BASE/api/../actuator/health" >/dev/null 2>&1 \
-  && bad "actuator reachable via path traversal" \
-  || ok "actuator blocked through public Nginx proxy"
+trav=$(curl -sS --path-as-is "$BASE/api/../actuator/health" || true)
+if echo "$trav" | grep -q '"status":"UP"'; then
+  bad "Backend actuator leaked through public Nginx proxy" "$trav"
+else
+  ok "Backend actuator not exposed through public Nginx proxy"
+fi
 rid=$(curl -sS -D - -o /dev/null "$BASE/api/chat/history?sessionId=none" | grep -i "^x-request-id:" | tr -d '\r' | awk '{print $2}')
-[ -n "$rid" ] && ok "X-Request-Id echoed ($rid)" || bad "X-Request-Id missing"
+if [ -n "$rid" ]; then ok "X-Request-Id echoed ($rid)"; else bad "X-Request-Id missing"; fi
 
 echo "==> 3. Admin authentication + refresh rotation + client RBAC"
 login=$(curl -sS -H 'Content-Type: application/json' -X POST "$BASE/api/auth/login" \
   -d "{\"email\":\"$ADMIN_EMAIL\",\"motDePasse\":\"$ADMIN_PASSWORD\"}")
-tok=$(echo "$login" | json 'd["token"]')
-rt=$(echo "$login" | json 'd["refreshToken"]')
+tok=$(echo "$login" | json 'd.get("token", "")')
+rt=$(echo "$login" | json 'd.get("refreshToken", "")')
 [ -n "$tok" ] && ok "Admin JWT issued" || bad "Admin login failed" "$login"
 
 # Keep a second admin session for admin API checks after testing logout rotation
 admin_login2=$(curl -sS -H 'Content-Type: application/json' -X POST "$BASE/api/auth/login" \
   -d "{\"email\":\"$ADMIN_EMAIL\",\"motDePasse\":\"$ADMIN_PASSWORD\"}")
-admin_tok=$(echo "$admin_login2" | json 'd["token"]')
+admin_tok=$(echo "$admin_login2" | json 'd.get("token", "")')
 auth=(-H "Authorization: Bearer $admin_tok" -H 'Content-Type: application/json')
 
 ref=$(curl -sS -H 'Content-Type: application/json' -X POST "$BASE/api/auth/refresh" -d "{\"refreshToken\":\"$rt\"}")
-rt2=$(echo "$ref" | json 'd["refreshToken"]')
+rt2=$(echo "$ref" | json 'd.get("refreshToken", "")')
 [ -n "$rt2" ] && [ "$rt2" != "$rt" ] && ok "Refresh token rotated" || bad "Refresh token did not rotate" "$ref"
 replay_code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -X POST "$BASE/api/auth/refresh" -d "{\"refreshToken\":\"$rt\"}")
 [ "$replay_code" = "401" ] && ok "Replayed refresh token rejected (401)" || bad "Replay returned $replay_code"

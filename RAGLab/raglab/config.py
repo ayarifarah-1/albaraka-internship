@@ -10,12 +10,15 @@ from pathlib import Path
 
 from pipeline_policy import ANSWER_MODEL as SELECTED_ANSWER_MODEL, ANSWER_PROVIDER as SELECTED_ANSWER_PROVIDER
 
-# Load .env from this project folder. Missing .env is fine: we just fail
-# later, loudly, when a command actually needs a key.
+# Load .env from this project folder (or RAGLAB_ENV_FILE when mounted from a
+# parent orchestrator such as the monorepo root docker-compose.yml). Missing
+# .env is fine: we just fail later, loudly, when a command actually needs a key.
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(Path(__file__).resolve().parent / ".env")
+    _env_file_override = os.environ.get("RAGLAB_ENV_FILE", "").strip()
+    load_dotenv(Path(_env_file_override) if _env_file_override
+                else Path(__file__).resolve().parent / ".env")
 except ImportError:
     print("[config] python-dotenv not installed; ignoring .env (install requirements.txt)")
 

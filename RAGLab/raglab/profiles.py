@@ -544,7 +544,23 @@ def greeting_language(text: str) -> str:
 # and the service's /keys endpoints).
 # ---------------------------------------------------------------------------
 
-ENV_PATH = PROJECT_DIR / ".env"
+DEFAULT_ENV_PATH = PROJECT_DIR / ".env"
+_env_override = os.environ.get("RAGLAB_ENV_FILE", "").strip()
+ENV_PATH = Path(_env_override) if _env_override else DEFAULT_ENV_PATH
+
+
+def resolve_env_path(path=None) -> Path:
+    """Resolve the active .env path at call time.
+
+    Precedence: explicit `path` argument -> monkeypatched `ENV_PATH` ->
+    `RAGLAB_ENV_FILE` environment variable -> `PROJECT_DIR / ".env"`.
+    """
+    if path is not None:
+        return Path(path)
+    if ENV_PATH != DEFAULT_ENV_PATH:
+        return ENV_PATH
+    override = os.environ.get("RAGLAB_ENV_FILE", "").strip()
+    return Path(override) if override else ENV_PATH
 
 
 PLACEHOLDER_PATTERNS = ("paste-your", "paste your", "your-key", "your_key",
@@ -559,7 +575,7 @@ def read_env_file(path=None) -> dict:
     at import time and silently ignore a later retarget — tests caught exactly
     that).
     """
-    path = ENV_PATH if path is None else path
+    path = resolve_env_path(path)
     assignments: dict[str, str] = {}
     if not path.exists():
         return assignments
@@ -636,7 +652,7 @@ def write_env_assignment(name: str, value: str, path=None, *, source: str = "app
     Comments and ordering are kept: .env is a file humans also edit, and a
     rewrite that dropped their notes would be a regression, not a convenience.
     """
-    target = ENV_PATH if path is None else Path(path)
+    target = resolve_env_path(path)
     existed = target.exists()
     lines = target.read_text(encoding="utf-8").splitlines() if existed else []
     pattern = re.compile(r"^\s*(?:export\s+)?" + re.escape(name) + r"\s*=")
@@ -659,7 +675,7 @@ def write_env_assignment(name: str, value: str, path=None, *, source: str = "app
 
 def remove_env_assignment(name: str, path=None) -> bool:
     """Drop one assignment from .env (and the process env). True if it existed."""
-    target = ENV_PATH if path is None else Path(path)
+    target = resolve_env_path(path)
     if not target.exists():
         os.environ.pop(name, None)
         return False

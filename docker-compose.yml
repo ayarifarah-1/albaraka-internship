@@ -1,0 +1,184 @@
+# =============================================================================
+# Al Baraka Monorepo — Unified Docker Compose Stack (4 Services + Auto-Wiring)
+# =============================================================================
+# Launches the complete platform in one command with automatic internal wiring:
+#   - postgres  (pgvector/pgvector:pg16)       -> internal `postgres:5432`
+#   - raglab    (FastAPI RAG microservice)     -> internal `http://raglab:8000`
+#   - backend   (Spring Boot 4 / Java 21 API)  -> internal `http://backend:8081`
+#   - frontend  (Angular 21 SPA + Nginx proxy) -> http://localhost:8080
+#
+# Zero manual linking required:
+#   - `frontend` Nginx proxies `/api/*` -> `http://backend:8081`
+#   - `backend` automatically connects to `RAGLAB_URL=http://raglab:8000` using
+#     the shared `RAGLAB_SERVICE_TOKEN` (`X-Service-Token`) and to `postgres`.
+#   - `raglab` mounts `./RAGLab/raglab:/host-raglab` (`RAGLAB_ENV_FILE`), so no
+#     pre-existing `.env` file is required before `docker compose up`, and API
+#     keys saved from the UI (`/admin/raglab/settings?tab=keys`) persist on the
+#     host in `RAGLab/raglab/.env`.
+#
+# Quickstart:
+#   docker compose up --build -d
+#   open http://localhost:8080
+#
+# Optional end-to-end verification of all 4 containers + automatic RAG link:
+#   docker compose --profile smoke run --rm smoke
+# =============================================================================
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-banque_assistant}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - albaraka_pgdata:/var/lib/postgresql/data
+      - ./bank-assistant/docker/initdb:/docker-entrypoint-initdb.d:ro
+    networks:
+      - albaraka-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-banque_assistant}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  raglab:
+    build:
+      context: ./RAGLab
+      dockerfile: Dockerfile
+    image: ${REGISTRY:-albaraka/}raglab:${TAG:-local}
+    restart: unless-stopped
+    environment:
+      RAGLAB_ENV_FILE: /host-raglab/.env
+      RAGLAB_SERVICE_TOKEN: ${RAGLAB_SERVICE_TOKEN:-albaraka-internal-raglab-token}
+      RAGLAB_ALLOW_PROFILE_SWITCH: "${RAGLAB_ALLOW_PROFILE_SWITCH:-1}"
+      RAGLAB_CACHE_DIR: /app/raglab/caches
+    ports:
+      - "127.0.0.1:${RAGLAB_PORT:-8000}:8000"
+    volumes:
+      - ./RAGLab/raglab:/host-raglab
+      - albaraka_raglab_index:/app/raglab/chroma_db
+      - albaraka_raglab_caches:/app/raglab/caches
+      - albaraka_raglab_documents:/app/raglab/documents
+    networks:
+      - albaraka-net
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, sys, urllib.request; r = urllib.request.Request('http://127.0.0.1:8000/health', headers={'X-Service-Token': os.environ.get('RAGLAB_SERVICE_TOKEN') or os.environ.get('RAGLAB_TOKEN', '')}); sys.exit(0 if urllib.request.urlopen(r, timeout=5).status == 200 else 1)"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 25s
+
+  backend:
+    build:
+      context: ./bank-assistant/backend
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-local}
+        GIT_BRANCH: ${GIT_BRANCH:-local}
+    image: ${REGISTRY:-albaraka/}backend:${TAG:-local}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      raglab:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-banque_assistant}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-validate}
+      DEV_SEED: ${DEV_SEED:-true}
+      JWT_SECRET: ${JWT_SECRET:-albaraka-dev-only-jwt-secret-change-me-in-prod-32bytes}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:4200}
+      # Automatic Docker DNS link to the `raglab` container — no UI URL entry needed.
+      RAGLAB_URL: ${RAGLAB_URL:-http://raglab:8000}
+      RAGLAB_TOKEN: ${RAGLAB_SERVICE_TOKEN:-albaraka-internal-raglab-token}
+      APP_UPLOAD_DIR: /app/uploads
+      RATE_LIMIT_LOGIN_MAX: ${RATE_LIMIT_LOGIN_MAX:-10}
+      RATE_LIMIT_CHAT_MAX: ${RATE_LIMIT_CHAT_MAX:-30}
+      RATE_LIMIT_UPLOAD_MAX: ${RATE_LIMIT_UPLOAD_MAX:-20}
+      CHAT_HISTORY_RETENTION_DAYS: ${CHAT_HISTORY_RETENTION_DAYS:-0}
+      CHAT_HISTORY_BACKFILL_ENABLED: ${CHAT_HISTORY_BACKFILL_ENABLED:-false}
+      CHAT_HISTORY_BACKFILL_DRY_RUN: ${CHAT_HISTORY_BACKFILL_DRY_RUN:-true}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8081}:8081"
+    volumes:
+      - albaraka_uploads:/app/uploads
+    networks:
+      - albaraka-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./bank-assistant/frontend
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-local}
+        GIT_BRANCH: ${GIT_BRANCH:-local}
+    image: ${REGISTRY:-albaraka/}frontend:${TAG:-local}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - albaraka-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  smoke:
+    image: python:3.12-slim
+    profiles: ["smoke"]
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      raglab:
+        condition: service_healthy
+    environment:
+      SMOKE_BASE_URL: http://frontend
+      SMOKE_METRICS_URL: http://backend:8081/actuator/prometheus
+    volumes:
+      - ./scripts:/scripts:ro
+    networks:
+      - albaraka-net
+    entrypoint:
+      [
+        "bash",
+        "-c",
+        "apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null && exec bash /scripts/smoke_compose.sh"
+      ]
+
+networks:
+  albaraka-net:
+    driver: bridge
+
+volumes:
+  albaraka_pgdata:
+  albaraka_uploads:
+  albaraka_raglab_index:
+  albaraka_raglab_caches:
+  albaraka_raglab_documents:

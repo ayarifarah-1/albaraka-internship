@@ -1264,6 +1264,57 @@ class ConsoleEndpointsTest(unittest.TestCase):
             if saved_custom is not None:
                 os.environ["OPENROUTER_API_KEY"] = saved_custom
 
+    def test_raglab_env_file_override_creates_and_updates_mounted_env(self):
+        """Root docker-compose mounts ./RAGLab/raglab:/host-raglab and sets
+        RAGLAB_ENV_FILE=/host-raglab/.env so a fresh clone needs no pre-existing
+        .env file before `docker compose up`."""
+        mounted_dir = Path(tempfile.mkdtemp())
+        mounted_env = mounted_dir / ".env"
+        saved_override = os.environ.get("RAGLAB_ENV_FILE")
+        saved_env_path = profiles.ENV_PATH
+        saved_custom = os.environ.pop("GROQ_API_KEY", None)
+        try:
+            profiles.ENV_PATH = profiles.DEFAULT_ENV_PATH
+            os.environ["RAGLAB_ENV_FILE"] = str(mounted_env)
+            app = service.create_app(
+                _service_profile(self.tmp),
+                allow_profile_switch=True, config_overrides=self.overrides)
+            local_client = TestClient(app)
+            before = local_client.get("/env/keys").json()
+            self.assertFalse(before["env_file"]["exists"])
+            self.assertTrue(before["env_file"]["writable"])
+            self.assertEqual(before["env_file"]["path"], "raglab/.env")
+
+            saved = local_client.post("/env/keys", json={
+                "key_env": "GROQ_API_KEY",
+                "value": "gsk_live_secret_token_123456",
+                "persist": True,
+            })
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertTrue(mounted_env.exists())
+            self.assertIn("GROQ_API_KEY=gsk_live_secret_token_123456",
+                          mounted_env.read_text(encoding="utf-8"))
+
+            deleted = local_client.delete("/env/keys/GROQ_API_KEY")
+            self.assertEqual(deleted.status_code, 200)
+            self.assertTrue(deleted.json()["removed_from_env_file"])
+            self.assertNotIn("GROQ_API_KEY",
+                             mounted_env.read_text(encoding="utf-8"))
+        finally:
+            profiles.ENV_PATH = saved_env_path
+            if saved_override is None:
+                os.environ.pop("RAGLAB_ENV_FILE", None)
+            else:
+                os.environ["RAGLAB_ENV_FILE"] = saved_override
+            if saved_custom is not None:
+                os.environ["GROQ_API_KEY"] = saved_custom
+            else:
+                os.environ.pop("GROQ_API_KEY", None)
+            if mounted_env.exists():
+                mounted_env.unlink()
+            if mounted_dir.exists():
+                mounted_dir.rmdir()
+
     def test_inspect_reports_chunking_without_model_calls(self):
         response = self.client.get("/inspect", params={"limit": 2})
         self.assertEqual(response.status_code, 200, response.text)

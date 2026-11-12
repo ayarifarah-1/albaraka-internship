@@ -1241,7 +1241,7 @@ def create_app(profile: dict | None = None, *, generator=None,
     # writes it to raglab/.env on the service host, exactly like app.py.
 
     def _env_file_path() -> Path:
-        return profiles.ENV_PATH if env_path is None else Path(env_path)
+        return profiles.resolve_env_path(env_path)
 
     custom_runtime_keys: set[str] = set()
 

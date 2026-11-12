@@ -35,6 +35,7 @@ jobs:
       raglab: ${{ steps.filter.outputs.raglab }}
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      compose: ${{ steps.filter.outputs.compose }}
       workflow: ${{ steps.filter.outputs.workflow }}
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +54,10 @@ jobs:
               - 'bank-assistant/docker-compose*.yml'
             frontend:
               - 'bank-assistant/frontend/**'
+            compose:
+              - 'docker-compose*.yml'
+              - '.env.example'
+              - 'scripts/**'
             workflow:
               - '.github/workflows/**'
               - 'bank-assistant/sonar-project.properties'
@@ -278,6 +283,7 @@ jobs:
           python3 ../scripts/check_yaml_dupes.py \
             src/main/resources/*.yml \
             src/test/resources/*.yml \
+            ../../docker-compose*.yml \
             ../docker-compose*.yml \
             ../../RAGLab/docker-compose*.yml \
             ../../.github/workflows/*.yml
@@ -454,3 +460,51 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+  # ----------------------------------------------------------
+  # Unified 4-service Docker Compose stack (postgres + raglab + backend + frontend)
+  # Verifies zero-config automatic linking (`http://raglab:8000`) end to end.
+  compose-stack:
+    name: Unified Stack — Docker Compose + Auto-Link Smoke
+    needs: changes
+    if: >-
+      needs.changes.outputs.compose == 'true'
+      || needs.changes.outputs.raglab == 'true'
+      || needs.changes.outputs.backend == 'true'
+      || needs.changes.outputs.frontend == 'true'
+      || needs.changes.outputs.workflow == 'true'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate unified docker-compose.yml config (no manual .env needed)
+        run: docker compose config --quiet
+
+      - name: Boot all 4 containers and wait for healthchecks
+        run: |
+          set -o pipefail
+          docker compose up --build -d --wait 2>&1 | tee /tmp/compose_up.log
+          docker compose ps
+
+      - name: Run end-to-end 4-container + RAGLab auto-link smoke suite
+        run: |
+          set -o pipefail
+          docker compose --profile smoke run --rm smoke 2>&1 | tee /tmp/compose_smoke.log
+
+      - name: Report failure via check-run annotation
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          ps_out=$(docker compose ps 2>&1)
+          smoke_tail=$(tail -c 1200 /tmp/compose_smoke.log 2>/dev/null)
+          logs_tail=$(docker compose logs --no-color --tail=40 raglab backend frontend 2>&1 | tail -c 1500)
+          msg=$(printf 'ps:\n%s\n---smoke---\n%s\n---logs---\n%s' "$ps_out" "$smoke_tail" "$logs_tail" \
+            | sed -e 's/%/%25/g' -e 's/:/%3A/g' | tr '\n' '|')
+          echo "::error::compose-stack failure: $msg"
+
+      - name: Tear down stack and volumes
+        if: always()
+        run: docker compose down -v --remove-orphans
+

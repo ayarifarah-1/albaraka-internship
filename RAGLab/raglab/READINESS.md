@@ -15,7 +15,7 @@ not unsupervised customer-facing banking advice or automated financial decisions
 ## What the evidence supports
 
 The post-cleanup [selected-pipeline regression](reports/selected_pipeline_01.json),
-[Actions run 33979521271](https://github.com/seif-bkh/RAGLab/actions/runs/33979521271),
+Actions run `33979521271`,
 completed successfully with all declared regression gates true:
 
 - 13/14 development answer-rubric passes; the remaining French case used “achète”

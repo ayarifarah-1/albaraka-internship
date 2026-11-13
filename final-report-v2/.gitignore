@@ -1,0 +1,6 @@
+# Generated output of build.py
+build/
+# Local Python environment
+.venv/
+__pycache__/
+*.py[cod]

@@ -1,0 +1,4 @@
+# Build dependencies for this report. See README.md.
+typst>=0.15
+pymupdf>=1.24
+pillow>=10

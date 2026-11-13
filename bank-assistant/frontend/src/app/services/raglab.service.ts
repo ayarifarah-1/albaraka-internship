@@ -85,6 +85,23 @@ export interface RaglabKeysResponse {
   keys: RaglabKeyItem[];
 }
 
+export interface RaglabEnvFileInfo {
+  path: string;
+  exists: boolean;
+  writable: boolean;
+}
+
+export interface RaglabEnvKeyItem extends RaglabKeyItem {
+  registered?: boolean;
+  in_process?: boolean;
+  in_env_file?: boolean;
+}
+
+export interface RaglabEnvKeysResponse {
+  env_file?: RaglabEnvFileInfo;
+  keys: RaglabEnvKeyItem[];
+}
+
 export interface RaglabClaimEvidence {
   source_id: string;
   quote: string;
@@ -471,6 +488,22 @@ export class RaglabService implements OnDestroy {
 
   deleteKey(env: string, persist = false): Observable<unknown> {
     return this.http.delete(`${this.base}/keys/${encodeURIComponent(env)}?persist=${persist}`).pipe(
+      tap(() => this.refreshHealth())
+    );
+  }
+
+  getEnvKeys(): Observable<RaglabEnvKeysResponse> {
+    return this.http.get<RaglabEnvKeysResponse>(`${this.base}/env/keys`);
+  }
+
+  setEnvKey(keyEnv: string, value: string, persist = true): Observable<unknown> {
+    return this.http.post(`${this.base}/env/keys`, { key_env: keyEnv, value, persist }).pipe(
+      tap(() => this.refreshHealth())
+    );
+  }
+
+  deleteEnvKey(env: string, persist = true): Observable<unknown> {
+    return this.http.delete(`${this.base}/env/keys/${encodeURIComponent(env)}?persist=${persist}`).pipe(
       tap(() => this.refreshHealth())
     );
   }

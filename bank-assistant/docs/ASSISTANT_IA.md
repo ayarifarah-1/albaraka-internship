@@ -11,8 +11,8 @@ Everything below is copy-pasteable. It covers the admin section that connects th
 ## 1. Bring the stack up
 
 ```bash
-git clone https://github.com/seif-bkh/bank-assistant.git
-cd bank-assistant
+git clone https://github.com/elayarifarah/albaraka-internship.git
+cd albaraka-internship/bank-assistant
 
 cp .env.docker.example .env
 #   RAGLAB_URL=http://10.20.30.40:8000   (the assistant; empty = not wired yet — see §2)

@@ -8,12 +8,12 @@ const TITLES: Record<string, { title: string; section: string }> = {
   dashboard: { title: 'Tableau de bord', section: 'Pilotage' },
   stats: { title: "Statistiques d'usage", section: 'Pilotage' },
   monitoring: { title: 'Monitoring du chat', section: 'Pilotage' },
-  documents: { title: 'Documents', section: 'Connaissance' },
-  ingestion: { title: 'Ingestion & indexation', section: 'Connaissance' },
-  facts: { title: 'Faits gouvernés', section: 'Connaissance' },
-  taxonomy: { title: 'Taxonomie & catalogue', section: 'Connaissance' },
+  raglab: { title: 'Console RAGLab', section: 'Assistant IA' },
+  agent: { title: 'Santé & diagnostic', section: 'Assistant IA' },
   users: { title: 'Utilisateurs & rôles', section: 'Administration' },
+  roles: { title: 'Rôles & permissions', section: 'Administration' },
   historique: { title: 'Historique clients', section: 'Administration' },
+  news: { title: 'Actualités', section: 'Administration' },
   chat: { title: 'Assistant', section: 'Espace client' },
 };
 

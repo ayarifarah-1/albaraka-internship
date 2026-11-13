@@ -284,4 +284,44 @@ describe('RaglabService polling', () => {
     httpMock.expectOne('/api/admin/raglab/health').flush({ status: 'ok' });
     expect(service.lastCheckedAt()).toBeInstanceOf(Date);
   });
+
+  it('manages .env-backed provider and custom API keys with persist=true by default', () => {
+    let envPayload: any = null;
+    service.getEnvKeys().subscribe((res) => {
+      envPayload = res;
+    });
+    httpMock.expectOne('/api/admin/raglab/env/keys').flush({
+      env_file: { path: 'raglab/.env', exists: true, writable: true },
+      keys: [
+        {
+          env: 'NVIDIA_API_KEY',
+          description: 'NVIDIA NIM',
+          registered: true,
+          status: 'set',
+          in_process: true,
+          in_env_file: true,
+          masked: 'nvapi-12…',
+        },
+      ],
+    });
+    expect(envPayload.env_file.writable).toBe(true);
+    expect(envPayload.keys[0].in_env_file).toBe(true);
+
+    service.setEnvKey('OPENROUTER_API_KEY', 'sk-or-v1-test123456').subscribe();
+    const postReq = httpMock.expectOne('/api/admin/raglab/env/keys');
+    expect(postReq.request.method).toBe('POST');
+    expect(postReq.request.body).toEqual({
+      key_env: 'OPENROUTER_API_KEY',
+      value: 'sk-or-v1-test123456',
+      persist: true,
+    });
+    postReq.flush({ env: 'OPENROUTER_API_KEY', status: 'set', persisted: true });
+    httpMock.expectOne('/api/admin/raglab/health').flush({ status: 'ok' });
+
+    service.deleteEnvKey('OPENROUTER_API_KEY').subscribe();
+    const delReq = httpMock.expectOne('/api/admin/raglab/env/keys/OPENROUTER_API_KEY?persist=true');
+    expect(delReq.request.method).toBe('DELETE');
+    delReq.flush({ env: 'OPENROUTER_API_KEY', status: 'missing', removed_from_env_file: true });
+    httpMock.expectOne('/api/admin/raglab/health').flush({ status: 'ok' });
+  });
 });

@@ -1,6 +1,7 @@
 import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterModule } from '@angular/router';
 
 import { AuthService } from '../../services/auth.service';
 import { AgentAdminService, AgentAuditEntry, AgentDiagnostics, AgentEndpoint }
@@ -17,7 +18,7 @@ import { AgentAdminService, AgentAuditEntry, AgentDiagnostics, AgentEndpoint }
 @Component({
   selector: 'app-admin-agent-health',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterModule],
   templateUrl: './admin-agent-health.html',
   styleUrl: './admin-agent-health.css',
 })
@@ -60,6 +61,9 @@ export class AdminAgentHealth implements OnInit {
         this.form.url = endpoint.url ?? endpoint.deployedUrl ?? '';
         this.loading = false;
         this.cdr.detectChanges();
+        if (endpoint.configured && !this.diagnostics && !this.probing) {
+          this.probe();
+        }
       },
       error: (err) => {
         this.errorMessage = this.describeError(err);
@@ -148,7 +152,7 @@ export class AdminAgentHealth implements OnInit {
   sourceLabel(source: string | null | undefined): string {
     switch (source) {
       case 'DATABASE': return 'définie depuis le back-office';
-      case 'ENV': return 'valeur déployée (RAGLAB_URL)';
+      case 'ENV': return 'liaison automatique (RAGLAB_URL)';
       case 'NONE': return 'non configurée';
       default: return 'inconnue';
     }
@@ -157,7 +161,7 @@ export class AdminAgentHealth implements OnInit {
   sourceBadge(source: string | null | undefined): string {
     switch (source) {
       case 'DATABASE': return 'info';
-      case 'ENV': return 'neutral';
+      case 'ENV': return 'success';
       default: return 'warning';
     }
   }
@@ -168,10 +172,12 @@ export class AdminAgentHealth implements OnInit {
       return 'Aucune adresse : le service RAG n\'est pas câblé sur cet environnement.';
     }
     if (!this.diagnostics) {
-      return 'Adresse connue — lancez le test de connexion pour vérifier que le service répond.';
+      return 'Vérification automatique de la liaison avec le service RAGLab…';
     }
     if (this.diagnostics.reachable) {
-      return 'Le service répond. La suite (profil, index, clés) arrive avec les prochains écrans.';
+      return this.endpoint?.source === 'ENV'
+        ? `Liaison automatique active : le backend communique directement avec ${this.endpoint.hostPort || this.endpoint.url} sans configuration manuelle.`
+        : 'Le service répond sur l\'adresse configurée.';
     }
     return this.diagnostics.errorReason === 'raglab_not_configured'
       ? 'Aucune adresse configurée.'

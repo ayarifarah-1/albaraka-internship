@@ -1,7 +1,7 @@
 # RAGLab service — HTTP contract
 
 **Audience:** the fullstack team building against this service.
-**Service version:** `1.5.0` (reported by `GET /health` → `version`).
+**Service version:** `1.6.0` (reported by `GET /health` → `version`).
 **Machine-readable schema:** FastAPI generates OpenAPI 3 at `/openapi.json` and
 interactive docs at `/docs`. This document is the human contract — semantics,
 state, error behavior and integration rules that a schema alone does not carry.
@@ -314,6 +314,35 @@ recreation — in Docker, hand keys to compose `env_file` instead).
 ```
 
 `DELETE /keys/{env}?persist=false` → `{"env", "status": "missing", "removed_from_env_file"}`.
+
+### 3.5b `GET /env/keys` / `POST /env/keys` / `DELETE /env/keys/{env}` — `.env`-backed provider & custom API keys (1.6.0, additive)
+Frozen `/keys` keeps its strict `KEY_ENV_INFO` allowlist and `persist=false`
+default. `/env/keys` is the `.env`-first endpoint for admin consoles that
+manage both registered provider keys and custom API keys directly in
+`raglab/.env` (which `docker-compose.yml` bind-mounts as
+`./raglab/.env:/app/raglab/.env`, so writes survive container recreation too).
+
+- `GET /env/keys` →
+  ```json
+  {"env_file": {"path": "raglab/.env", "exists": true, "writable": true},
+   "keys": [{"env": "NVIDIA_API_KEY", "description": "…", "registered": true,
+             "status": "set", "in_process": true, "in_env_file": true,
+             "masked": "nvapi-12…"},
+            {"env": "OPENROUTER_API_KEY", "description": "Custom API key (raglab/.env)",
+             "registered": false, "status": "set", "in_process": true,
+             "in_env_file": true, "masked": "sk-or-v1…"}]}
+  ```
+- `POST /env/keys` body: `{key_env, value, persist?: true}` (`persist` defaults
+  to `true`). `key_env` must be either a registered provider key or a custom
+  uppercase API-key variable matching `^[A-Z][A-Z0-9_]{0,62}_(?:API_KEY|KEY)(?:_[A-Z0-9_]{1,30})?$`
+  and must never start with reserved service/system prefixes (`RAGLAB_*`,
+  `HARNESS_*`, `PYTHON*`, `LD_*`, `PATH`, etc.; otherwise `400 bad_key_env`).
+  Writes update both `os.environ` immediately (invalidating cached
+  embedder/generator) and `raglab/.env` in place when `persist: true`
+  (`500 env_file_unwritable` if read-only).
+- `DELETE /env/keys/{env}?persist=true` (`persist` defaults to `true`) →
+  removes `env` from `os.environ` and (when `persist=true`) from `raglab/.env`,
+  returning `{"env", "status": "missing", "in_process": false, "in_env_file": false, "removed_from_env_file": bool}`.
 
 ### 3.6 `GET /inspect?limit=3` — chunking preview (free)
 Corpus + chunk statistics with sample chunks. `limit` 0–50 (`400 bad_limit`);

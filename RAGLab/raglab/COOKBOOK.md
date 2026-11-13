@@ -125,8 +125,12 @@ DELETE /keys/NVIDIA_API_KEY?persist=false
 the response); the value cannot contain spaces/quotes (`400 bad_key_value`)
 or look like the `.env.example` template (`400 placeholder_value`). Responses
 carry only the mask (`"masked": "nvapi-12…"`). `persist: true` also writes
-the service host's `raglab/.env` (survives restarts, NOT container
-recreations — in Docker, compose `env_file` is the durable path). Setting or
+the service host's `raglab/.env` (`docker-compose.yml` bind-mounts
+`./raglab/.env:/app/raglab/.env` so persisted keys survive container
+recreation too). For admin UIs that manage both registered provider keys and
+custom API keys (`OPENROUTER_API_KEY`, `GROQ_API_KEY`, …) with `.env`
+persistence ON by default, use `GET /env/keys`, `POST /env/keys`, and
+`DELETE /env/keys/{env}` (service `1.6.0`, CONTRACT.md §3.5b). Setting or
 deleting a key resets the cached embedder/generator immediately. Test button:
 `POST /embeddings/sanity` (one batched call, 3 phrases, cosine report).
 

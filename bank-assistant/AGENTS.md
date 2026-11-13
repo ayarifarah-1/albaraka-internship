@@ -244,7 +244,10 @@ file; new rules are appended here with the date.
   research how existing modern web-banking solutions implement that feature and
   record the findings in `docs/` (referenced from here). The first research
   pass — simulator, appointment, advisor contact, news feed, prayer times — is
-  in [`docs/UIUX_RESEARCH.md`](./docs/UIUX_RESEARCH.md). A change that skips
+  in [`docs/UIUX_RESEARCH.md`](./docs/UIUX_RESEARCH.md); admin access control is
+  in [`docs/ADMIN_ACCESS_CONTROL_UX_RESEARCH.md`](./docs/ADMIN_ACCESS_CONTROL_UX_RESEARCH.md);
+  RAGLab API-key & `.env` management is in
+  [`docs/RAGLAB_API_KEYS_UX_RESEARCH.md`](./docs/RAGLAB_API_KEYS_UX_RESEARCH.md). A change that skips
   this step is not done.
 - **Keep the portal quick-action tiles (2026-09-07).** The simulator /
   appointment / advisor tiles on the portal home must stay visible and wired,

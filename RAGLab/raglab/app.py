@@ -91,11 +91,11 @@ from profiles import (ANSWER_PROVIDERS, EMBEDDING_PROVIDERS, KEY_ENV_INFO,
                       greeting_reply, ingest, is_greeting, locate_text,
                       looks_like_placeholder, masked, missing_key_slots,
                       pipeline_marker, read_env_file, remove_env_assignment,
-                      search_rows, slot_display, stored_index_info,
+                      resolve_env_path, search_rows, slot_display, stored_index_info,
                       write_env_assignment)
 
 PROJECT_DIR = Path(__file__).resolve().parent
-ENV_PATH = PROJECT_DIR / ".env"
+ENV_PATH = resolve_env_path()
 STATE_PATH = PROJECT_DIR / "app_state.json"
 
 

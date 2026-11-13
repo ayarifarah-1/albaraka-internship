@@ -14,7 +14,7 @@
 #
 # Usage
 #   ./deploy/promote.sh --build                     build images tagged with HEAD
-#   REGISTRY=registry.example.tn/albaraka ./deploy/promote.sh --push     build + push
+#   REGISTRY=elayarifarah ./deploy/promote.sh --push                        build + push to Docker Hub
 #   DEPLOY_HOST=ops@prod DEPLOY_DIR=/srv/bank-assistant ./deploy/promote.sh --deploy
 #   ./deploy/promote.sh --verify http://localhost:8081 http://localhost:8080
 #   ./deploy/promote.sh --status                      what HEAD is, and what is dirty
@@ -35,7 +35,7 @@ cd "$ROOT"
 SHA="$(git rev-parse --short HEAD)"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 TAG="${TAG:-$SHA}"
-REGISTRY="${REGISTRY:-}"
+REGISTRY="${REGISTRY:-elayarifarah}"
 SERVICES=(backend frontend)   # RAGLab is external — not built or shipped here
 
 die() { echo "promote: $*" >&2; exit 1; }
@@ -48,12 +48,12 @@ require_clean_tree() {
 }
 
 need_registry() {
-  [ -n "$REGISTRY" ] || die "REGISTRY is not set (e.g. REGISTRY=registry.example.tn/albaraka)."
+  [ -n "$REGISTRY" ] || die "REGISTRY is not set (e.g. REGISTRY=elayarifarah)."
 }
 
 build() {
   require_clean_tree
-  note "building ${SERVICES[*]} as ${REGISTRY:-bank-assistant}/<service>:$TAG from $BRANCH@$SHA"
+  note "building ${SERVICES[*]} as ${REGISTRY}/albaraka-<service>:$TAG from $BRANCH@$SHA"
   GIT_SHA="$SHA" GIT_BRANCH="$BRANCH" BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   REGISTRY="$REGISTRY" TAG="$TAG" \
     docker compose build "${SERVICES[@]}"
@@ -63,8 +63,8 @@ push() {
   need_registry
   build
   for s in "${SERVICES[@]}"; do
-    note "pushing $REGISTRY/$s:$TAG"
-    docker push "$REGISTRY/$s:$TAG"
+    note "pushing $REGISTRY/albaraka-$s:$TAG"
+    docker push "$REGISTRY/albaraka-$s:$TAG"
   done
   note "pushed. On the target: TAG=$TAG docker compose pull && docker compose up -d"
 }

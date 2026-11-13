@@ -14,6 +14,8 @@ import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -178,7 +180,26 @@ public class RagLabClient {
 
     /** {@code DELETE /keys/{env}} — delete an API key. */
     public Result deleteKey(String env, Boolean persist) {
-        String path = "/keys/" + env + (Boolean.TRUE.equals(persist) ? "?persist=true" : "?persist=false");
+        String safeEnv = URLEncoder.encode(env == null ? "" : env.trim(), StandardCharsets.UTF_8);
+        String path = "/keys/" + safeEnv + (Boolean.TRUE.equals(persist) ? "?persist=true" : "?persist=false");
+        return delete(path, restTemplate);
+    }
+
+    /** {@code GET /env/keys} — .env-backed registered + custom API keys and file status. */
+    public Result envKeys() {
+        return get("/env/keys", restTemplate);
+    }
+
+    /** {@code POST /env/keys} — set a registered or custom API key (persisted to raglab/.env by default). */
+    public Result setEnvKey(Map<String, Object> body) {
+        return post("/env/keys", body, restTemplate);
+    }
+
+    /** {@code DELETE /env/keys/{env}} — delete a registered or custom API key (and remove from raglab/.env by default). */
+    public Result deleteEnvKey(String env, Boolean persist) {
+        String safeEnv = URLEncoder.encode(env == null ? "" : env.trim(), StandardCharsets.UTF_8);
+        boolean persistFlag = persist == null || Boolean.TRUE.equals(persist);
+        String path = "/env/keys/" + safeEnv + (persistFlag ? "?persist=true" : "?persist=false");
         return delete(path, restTemplate);
     }
 
@@ -328,7 +349,7 @@ public class RagLabClient {
         String rawBody = e.getResponseBodyAsString();
         JsonNode parsed = parse(rawBody);
         String reason = firstText(parsed, "reason", "detail.reason", "error", "detail.code");
-        String message = firstText(parsed, "message", "detail.message", "detail", "error");
+        String message = firstText(parsed, "message", "detail.message", "detail.hint", "detail", "error");
         if (reason == null) {
             reason = "raglab_http_" + e.getStatusCode().value();
         }

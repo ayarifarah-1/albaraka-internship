@@ -15,7 +15,7 @@ name: RAGLab answer A/B
 # Reading the result from the sandbox (job logs and artifact downloads are NOT
 # reachable there — same constraint as real-test.yml):
 #   1. answer_ab.py prints a final "ANNO| ..." line posted here as a ::warning::
-#      annotation, readable through: gh api repos/seif-bkh/RAGLab/check-runs/<id>/annotations
+#      annotation, readable through: gh api repos/<owner>/<repo>/check-runs/<id>/annotations
 #   2. the full report JSON lands in the answer-ab-results artifact (owner can
 #      download it from the run page).
 # A provider-failing arm is DATA, not a dead run: answer_ab records status="error"

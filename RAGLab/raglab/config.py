@@ -10,12 +10,15 @@ from pathlib import Path
 
 from pipeline_policy import ANSWER_MODEL as SELECTED_ANSWER_MODEL, ANSWER_PROVIDER as SELECTED_ANSWER_PROVIDER
 
-# Load .env from this project folder. Missing .env is fine: we just fail
-# later, loudly, when a command actually needs a key.
+# Load .env from this project folder (or RAGLAB_ENV_FILE when mounted from a
+# parent orchestrator such as the monorepo root docker-compose.yml). Missing
+# .env is fine: we just fail later, loudly, when a command actually needs a key.
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(Path(__file__).resolve().parent / ".env")
+    _env_file_override = os.environ.get("RAGLAB_ENV_FILE", "").strip()
+    load_dotenv(Path(_env_file_override) if _env_file_override
+                else Path(__file__).resolve().parent / ".env")
 except ImportError:
     print("[config] python-dotenv not installed; ignoring .env (install requirements.txt)")
 
@@ -287,14 +290,13 @@ RELATIONAL_EXPANSION_ENABLED = os.getenv("RELATIONAL_EXPANSION_ENABLED", "0") ==
 SUFFICIENCY_FIELDS_ENABLED = os.getenv("SUFFICIENCY_FIELDS_ENABLED", "1") == "1"
 
 # Phase-6 item 2: the answer's COMMITMENT to the sufficiency state.
-# ACTIVATED BY THE OWNER 2026-10-02 (directive «شغلها», same trial data as
-# above). ON means: an insufficient question is refused BEFORE any model
-# call (refusal tied to evidence absence, with a referral listing the
-# missing requirements); a PARTIALLY covered question is downgraded — one
-# bounded regeneration answers ONLY the covered micro-questions and the
-# response is tagged partial. ANSWER_SUFFICIENCY_COMMITMENT=0 restores the
-# always-answer behavior.
-ANSWER_SUFFICIENCY_COMMITMENT = os.getenv("ANSWER_SUFFICIENCY_COMMITMENT", "1") == "1"
+# Default OFF ("0") so semantically retrieved excerpts in any language (ar / fr
+# / en) always reach the answer model instead of being blocked pre-generation
+# by literal lexical anchoring in sufficiency.py; the model itself abstains
+# with {"answerable": false} when the excerpts do not support an answer. Set
+# ANSWER_SUFFICIENCY_COMMITMENT=1 to re-enable pre-generation lexical refusal
+# and bounded partial downgrade.
+ANSWER_SUFFICIENCY_COMMITMENT = os.getenv("ANSWER_SUFFICIENCY_COMMITMENT", "0") == "1"
 
 # Soft refusals (owner decision 2026-10-23, «كثيرا ما يكون الرد قاسيا»): when a
 # refusal carries a referral (clarifications / missing requirements) or an

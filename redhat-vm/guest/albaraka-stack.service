@@ -1,0 +1,18 @@
+[Unit]
+Description=Al Baraka Bank Tunisia — Governed AI Platform (Docker Compose Stack)
+After=network-online.target docker.service firewalld.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/albaraka
+ExecStartPre=/usr/local/bin/albaraka-boot-sync.sh
+ExecStart=/usr/bin/docker compose --project-directory /opt/albaraka -f /opt/albaraka/docker-compose.yml up -d --remove-orphans --no-build --pull missing
+ExecStop=/usr/bin/docker compose --project-directory /opt/albaraka -f /opt/albaraka/docker-compose.yml stop
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

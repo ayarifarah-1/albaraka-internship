@@ -4,8 +4,6 @@ import { AdminDashboard } from './pages/admin-dashboard/admin-dashboard';
 import { AdminStats } from './pages/admin-stats/admin-stats';
 import { AdminUsers } from './pages/admin-users/admin-users';
 import { AdminHistorique } from './pages/admin-historique/admin-historique';
-import { AdminFacts } from './pages/admin-facts/admin-facts';
-import { AdminTaxonomy } from './pages/admin-taxonomy/admin-taxonomy';
 import { AdminMonitoring } from './pages/admin-monitoring/admin-monitoring';
 import { LoginComponent } from './pages/login/login';
 import { AuthGuard } from './guards/auth.guard';
@@ -45,9 +43,7 @@ export const routes: Routes = [
     children: [
       { path: '', pathMatch: 'full', canActivate: [AdminHomeGuard], children: [] },
       { path: 'dashboard', component: AdminDashboard, canActivate: [RoleGuard], data: { expectedRoles: legacyStaffRoles } },
-      { path: 'facts', component: AdminFacts, canActivate: [RoleGuard], data: { expectedRoles: legacyStaffRoles } },
       { path: 'news', loadComponent: () => import('./pages/admin-news/admin-news').then(m => m.AdminNews), canActivate: [RoleGuard], data: { expectedRoles: legacyStaffRoles } },
-      { path: 'taxonomy', component: AdminTaxonomy, canActivate: [RoleGuard], data: { expectedRoles: legacyStaffRoles } },
       { path: 'stats', component: AdminStats, canActivate: [RoleGuard], data: { expectedRoles: legacyStaffRoles } },
       { path: 'monitoring', component: AdminMonitoring, canActivate: [RoleGuard], data: { expectedRoles: legacyStaffRoles } },
       {

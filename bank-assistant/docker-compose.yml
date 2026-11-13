@@ -37,7 +37,7 @@ services:
 
   # ---------------------------------------------------------
   backend:
-    image: ${REGISTRY:-bank-assistant}/backend:${TAG:-dev}
+    image: ${REGISTRY:-elayarifarah}/albaraka-backend:${TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -90,7 +90,7 @@ services:
 
   # ---------------------------------------------------------
   frontend:
-    image: ${REGISTRY:-bank-assistant}/frontend:${TAG:-dev}
+    image: ${REGISTRY:-elayarifarah}/albaraka-frontend:${TAG:-latest}
     build:
       context: ./frontend
       dockerfile: Dockerfile

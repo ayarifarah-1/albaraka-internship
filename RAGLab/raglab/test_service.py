@@ -144,7 +144,7 @@ class ServiceTest(unittest.TestCase):
         body = self.client.get("/health").json()
         self.assertEqual(self.client.get("/").status_code, 200)
         self.assertEqual(body["status"], "ok")
-        self.assertEqual(body["version"], "1.5.0")
+        self.assertEqual(body["version"], "1.6.0")
         self.assertEqual(body["profile"]["embedding"]["provider"], "huggingface")
         self.assertEqual(body["profile"]["answer"]["model"], PROFILE_MODEL)
         self.assertIn("collection", body["index"])
@@ -258,6 +258,18 @@ class ServiceTest(unittest.TestCase):
             self.assertEqual(body["status"], "answered", body)
             self.assertIn("evidence_status", body)
             self.assertIn("requirements_covered", body)
+
+            # Default config (ANSWER_SUFFICIENCY_COMMITMENT=0) must NEVER block
+            # cross-script / morphological questions before the LLM runs, even
+            # when lexical anchoring reports غير كافٍ.
+            for multilingual_q in (
+                "what are the types of fundings?",
+                "qu'elles sont les differentes types de financement?",
+                "ما هي مختلف التمويلات المتاحة؟",
+            ):
+                resp = client.post("/answer", json={"question": multilingual_q}).json()
+                self.assertEqual(resp["status"], "answered", resp)
+                self.assertTrue(resp["inference_performed"], resp)
 
             opt = dict(overrides)
             opt["SUFFICIENCY_FIELDS_ENABLED"] = False
@@ -529,6 +541,9 @@ class SufficiencyCommitmentTest(unittest.TestCase):
         self.assertEqual(body["referral"]["missing_requirements"],
                          body["requirements_missing"])
         self.assertIn("evidence", body["refusal_reason"])
+        for internal_code in ("wide_evidence", "procedural_evidence",
+                              "definition_or_purpose_unit"):
+            self.assertNotIn(internal_code, body["answer"])
 
     def test_partial_downgrade_one_bounded_regeneration(self):
         # sufficiency mocked to «غير كافٍ with one covered requirement» —
@@ -915,27 +930,30 @@ class AdversarialGateTest(unittest.TestCase):
         return _json.dumps({"answerable": True, "claims": [
             {"text": text, "evidence": [{"source_id": source_id, "quote": quote}]}]})
 
-    def test_cross_source_forged_quote_refused(self):
-        # the quote is REAL — but it belongs to a DIFFERENT chunk than the one cited
-        def attack(payload):
-            sources = payload["sources"]
-            if len(sources) >= 2:
-                return self._claim("The Atlas card costs 10 dinars per year.",
-                                   sources[0]["source_id"], _quote_of(sources[1]))
-            return self._claim("x", sources[0]["source_id"], "invented text " * 3)
-        body = self._ask(attack)
-        self.assertEqual(body["status"], "refused")
-        self.assertEqual(body["reason"], "invalid_output")
-        self.assertIn("not in the cited source", body["error"])
+    def test_synthesized_claim_with_source_id_only_accepted(self):
+        # Model synthesizes an answer citing source_id without copying verbatim text;
+        # the service accepts it and attaches the real excerpt from S1.
+        import json as _json
+        def synth(payload):
+            s = payload["sources"][0]
+            return _json.dumps({"answerable": True, "claims": [
+                {"text": "Annual maintenance is included with the Atlas card for 10 dinars.",
+                 "evidence": [{"source_id": s["source_id"]}]}]})
+        body = self._ask(synth)
+        self.assertEqual(body["status"], "answered", body)
+        self.assertTrue(body["claims"][0]["evidence"][0]["quote"])
 
-    def test_invented_quote_refused(self):
-        def attack(payload):
+    def test_non_verbatim_model_quote_snaps_to_real_source_excerpt(self):
+        # Even if the LLM paraphrases or alters letters inside `quote`, the
+        # synthesized claim is served and `quote` is replaced with genuine S1 text.
+        def paraphrased(payload):
             s = payload["sources"][0]
             return self._claim("The Atlas card costs 10 dinars per year.",
-                               s["source_id"], "this sentence appears nowhere in any chunk")
-        body = self._ask(attack)
-        self.assertEqual(body["status"], "refused")
-        self.assertEqual(body["reason"], "invalid_output")
+                               s["source_id"], "paraphrased note from model")
+        body = self._ask(paraphrased)
+        self.assertEqual(body["status"], "answered", body)
+        self.assertNotEqual(body["claims"][0]["evidence"][0]["quote"],
+                            "paraphrased note from model")
 
     def test_computed_number_refused(self):
         # the prose is faithful but the figure is COMPUTED (10 x 2): the quote says 10
@@ -1091,9 +1109,10 @@ class ConsoleEndpointsTest(unittest.TestCase):
                                     approved_models=(PROFILE_MODEL,))
         sys.modules["sentence_transformers"] = types.ModuleType("sentence_transformers")
         sys.modules["sentence_transformers"].SentenceTransformer = _FakeSentenceTransformer
+        cls.env_file = cls.tmp / ".env"
         cls.client = TestClient(service.create_app(
             cls.profile, generator=generator, allow_profile_switch=True,
-            config_overrides=cls.overrides))
+            config_overrides=cls.overrides, env_path=cls.env_file))
         accepted = cls.client.post("/ingest")
         assert accepted.status_code == 200, accepted.text
         deadline = time.monotonic() + 60
@@ -1174,6 +1193,145 @@ class ConsoleEndpointsTest(unittest.TestCase):
         finally:
             if saved is not None:
                 os.environ["KIRA_API_KEY"] = saved
+
+    def test_env_keys_persists_provider_and_custom_keys_safely(self):
+        saved_kira = os.environ.get("KIRA_API_KEY")
+        saved_custom = os.environ.get("OPENROUTER_API_KEY")
+        os.environ.pop("KIRA_API_KEY", None)
+        os.environ.pop("OPENROUTER_API_KEY", None)
+        self.env_file.write_text(
+            "# Operator notes stay intact\nRAGLAB_SERVICE_TOKEN=super-secret-token-999\n",
+            encoding="utf-8",
+        )
+        try:
+            initial = self.client.get("/env/keys")
+            self.assertEqual(initial.status_code, 200, initial.text)
+            payload = initial.json()
+            self.assertTrue(payload["env_file"]["exists"])
+            self.assertTrue(payload["env_file"]["writable"])
+            # RAGLAB_SERVICE_TOKEN in .env must NEVER appear in /env/keys output
+            self.assertNotIn("RAGLAB_SERVICE_TOKEN", json.dumps(payload))
+            self.assertNotIn("super-secret-token-999", json.dumps(payload))
+
+            # Reserved and malformed names must be rejected
+            for bad_name in ("RAGLAB_SERVICE_TOKEN", "RAGLAB_API_KEY", "PATH",
+                             "PYTHONPATH", "SUFFICIENCY_FIELDS_ENABLED",
+                             "lowercase_api_key", "RANDOM_VAR"):
+                bad = self.client.post("/env/keys", json={
+                    "key_env": bad_name, "value": "valid-secret-value-12345"})
+                self.assertEqual(bad.status_code, 400, bad_name)
+                self.assertEqual(bad.json()["detail"]["reason"], "bad_key_env")
+                del_bad = self.client.delete(f"/env/keys/{bad_name}")
+                self.assertEqual(del_bad.status_code, 400, bad_name)
+
+            # Default persist=True writes both registered and custom keys to .env
+            r_prov = self.client.post("/env/keys", json={
+                "key_env": "KIRA_API_KEY", "value": "kira-persisted-secret-777"})
+            self.assertEqual(r_prov.status_code, 200, r_prov.text)
+            self.assertTrue(r_prov.json()["persisted"])
+            self.assertTrue(r_prov.json()["in_env_file"])
+            self.assertTrue(r_prov.json()["registered"])
+            self.assertEqual(r_prov.json()["masked"], "kira-per…")
+
+            r_cust = self.client.post("/env/keys", json={
+                "key_env": "OPENROUTER_API_KEY", "value": "sk-or-v1-abcdef123456"})
+            self.assertEqual(r_cust.status_code, 200, r_cust.text)
+            self.assertTrue(r_cust.json()["persisted"])
+            self.assertTrue(r_cust.json()["in_env_file"])
+            self.assertFalse(r_cust.json()["registered"])
+            self.assertEqual(r_cust.json()["masked"], "sk-or-v1…")
+
+            # Verify .env file on disk kept comments + service token + new keys
+            disk_text = self.env_file.read_text(encoding="utf-8")
+            self.assertIn("# Operator notes stay intact", disk_text)
+            self.assertIn("RAGLAB_SERVICE_TOKEN=super-secret-token-999", disk_text)
+            self.assertIn("KIRA_API_KEY=kira-persisted-secret-777", disk_text)
+            self.assertIn("OPENROUTER_API_KEY=sk-or-v1-abcdef123456", disk_text)
+
+            # Update existing key in place (no duplicate assignment lines)
+            r_upd = self.client.post("/env/keys", json={
+                "key_env": "OPENROUTER_API_KEY", "value": "sk-or-v2-rotated987654"})
+            self.assertEqual(r_upd.status_code, 200)
+            disk_after_upd = self.env_file.read_text(encoding="utf-8")
+            self.assertEqual(disk_after_upd.count("OPENROUTER_API_KEY="), 1)
+            self.assertIn("OPENROUTER_API_KEY=sk-or-v2-rotated987654", disk_after_upd)
+
+            # GET /env/keys lists custom key masked, never full value
+            listed_after = self.client.get("/env/keys").json()
+            blob = json.dumps(listed_after)
+            self.assertNotIn("sk-or-v2-rotated987654", blob)
+            self.assertNotIn("kira-persisted-secret-777", blob)
+            by_env = {row["env"]: row for row in listed_after["keys"]}
+            self.assertEqual(by_env["OPENROUTER_API_KEY"]["masked"], "sk-or-v2…")
+            self.assertTrue(by_env["OPENROUTER_API_KEY"]["in_env_file"])
+
+            # DELETE /env/keys removes from both process and .env by default
+            del_cust = self.client.delete("/env/keys/OPENROUTER_API_KEY")
+            self.assertEqual(del_cust.status_code, 200)
+            self.assertTrue(del_cust.json()["removed_from_env_file"])
+            self.assertNotIn("OPENROUTER_API_KEY",
+                             self.env_file.read_text(encoding="utf-8"))
+            self.assertIn("RAGLAB_SERVICE_TOKEN=super-secret-token-999",
+                          self.env_file.read_text(encoding="utf-8"))
+            self.client.delete("/env/keys/KIRA_API_KEY")
+        finally:
+            if self.env_file.exists():
+                self.env_file.unlink()
+            if saved_kira is not None:
+                os.environ["KIRA_API_KEY"] = saved_kira
+            if saved_custom is not None:
+                os.environ["OPENROUTER_API_KEY"] = saved_custom
+
+    def test_raglab_env_file_override_creates_and_updates_mounted_env(self):
+        """Root docker-compose mounts ./RAGLab/raglab:/host-raglab and sets
+        RAGLAB_ENV_FILE=/host-raglab/.env so a fresh clone needs no pre-existing
+        .env file before `docker compose up`."""
+        mounted_dir = Path(tempfile.mkdtemp())
+        mounted_env = mounted_dir / ".env"
+        saved_override = os.environ.get("RAGLAB_ENV_FILE")
+        saved_env_path = profiles.ENV_PATH
+        saved_custom = os.environ.pop("GROQ_API_KEY", None)
+        try:
+            profiles.ENV_PATH = profiles.DEFAULT_ENV_PATH
+            os.environ["RAGLAB_ENV_FILE"] = str(mounted_env)
+            app = service.create_app(
+                _service_profile(self.tmp),
+                allow_profile_switch=True, config_overrides=self.overrides)
+            local_client = TestClient(app)
+            before = local_client.get("/env/keys").json()
+            self.assertFalse(before["env_file"]["exists"])
+            self.assertTrue(before["env_file"]["writable"])
+            self.assertEqual(before["env_file"]["path"], "raglab/.env")
+
+            saved = local_client.post("/env/keys", json={
+                "key_env": "GROQ_API_KEY",
+                "value": "gsk_live_secret_token_123456",
+                "persist": True,
+            })
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertTrue(mounted_env.exists())
+            self.assertIn("GROQ_API_KEY=gsk_live_secret_token_123456",
+                          mounted_env.read_text(encoding="utf-8"))
+
+            deleted = local_client.delete("/env/keys/GROQ_API_KEY")
+            self.assertEqual(deleted.status_code, 200)
+            self.assertTrue(deleted.json()["removed_from_env_file"])
+            self.assertNotIn("GROQ_API_KEY",
+                             mounted_env.read_text(encoding="utf-8"))
+        finally:
+            profiles.ENV_PATH = saved_env_path
+            if saved_override is None:
+                os.environ.pop("RAGLAB_ENV_FILE", None)
+            else:
+                os.environ["RAGLAB_ENV_FILE"] = saved_override
+            if saved_custom is not None:
+                os.environ["GROQ_API_KEY"] = saved_custom
+            else:
+                os.environ.pop("GROQ_API_KEY", None)
+            if mounted_env.exists():
+                mounted_env.unlink()
+            if mounted_dir.exists():
+                mounted_dir.rmdir()
 
     def test_inspect_reports_chunking_without_model_calls(self):
         response = self.client.get("/inspect", params={"limit": 2})

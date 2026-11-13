@@ -544,7 +544,23 @@ def greeting_language(text: str) -> str:
 # and the service's /keys endpoints).
 # ---------------------------------------------------------------------------
 
-ENV_PATH = PROJECT_DIR / ".env"
+DEFAULT_ENV_PATH = PROJECT_DIR / ".env"
+_env_override = os.environ.get("RAGLAB_ENV_FILE", "").strip()
+ENV_PATH = Path(_env_override) if _env_override else DEFAULT_ENV_PATH
+
+
+def resolve_env_path(path=None) -> Path:
+    """Resolve the active .env path at call time.
+
+    Precedence: explicit `path` argument -> monkeypatched `ENV_PATH` ->
+    `RAGLAB_ENV_FILE` environment variable -> `PROJECT_DIR / ".env"`.
+    """
+    if path is not None:
+        return Path(path)
+    if ENV_PATH != DEFAULT_ENV_PATH:
+        return ENV_PATH
+    override = os.environ.get("RAGLAB_ENV_FILE", "").strip()
+    return Path(override) if override else ENV_PATH
 
 
 PLACEHOLDER_PATTERNS = ("paste-your", "paste your", "your-key", "your_key",
@@ -559,7 +575,7 @@ def read_env_file(path=None) -> dict:
     at import time and silently ignore a later retarget — tests caught exactly
     that).
     """
-    path = ENV_PATH if path is None else path
+    path = resolve_env_path(path)
     assignments: dict[str, str] = {}
     if not path.exists():
         return assignments
@@ -573,14 +589,72 @@ def read_env_file(path=None) -> dict:
     return assignments
 
 
-def write_env_assignment(name: str, value: str) -> None:
+# Custom API-key environment variables accepted by GET/POST/DELETE /env/keys.
+# Names must look like an uppercase provider credential (e.g. OPENROUTER_API_KEY,
+# GROQ_API_KEY, XKIRO_API_KEY_2, MY_GATEWAY_KEY) and must never collide with
+# RAGLab's own runtime/auth flags or host/process environment variables.
+CUSTOM_KEY_ENV_RE = re.compile(
+    r"^[A-Z][A-Z0-9_]{0,62}_(?:API_KEY|KEY)(?:_[A-Z0-9_]{1,30})?$"
+)
+RESERVED_ENV_PREFIXES = (
+    "RAGLAB_",
+    "HARNESS_",
+    "PYTHON",
+    "LD_",
+    "PATH",
+    "SSL_",
+    "HTTP_",
+    "HTTPS_",
+    "NO_PROXY",
+    "ALL_PROXY",
+    "CHROMA",
+    "TIKTOKEN",
+    "UVICORN",
+    "FASTAPI",
+    "STARLETTE",
+    "SUFFICIENCY_",
+    "ANSWER_",
+    "EMBEDDING_",
+    "CHUNKING_",
+    "CHUNK_",
+    "QUERY_",
+    "LEXICON_",
+    "RERANK_",
+    "RELATIONAL_",
+    "REPHRASE_",
+    "PER_MICRO_",
+    "SOFT_REFUSAL_",
+    "AUDIT_",
+    "RETRIEVAL_",
+    "HYBRID_",
+    "KEYWORD_",
+    "FUSION_",
+)
+
+
+def is_allowed_custom_key_env(name: str) -> bool:
+    """True when `name` is a safe custom API-key variable name (not registered)."""
+    if not name or len(name) > 64 or name in KEY_ENV_INFO:
+        return False
+    if any(name.startswith(prefix) for prefix in RESERVED_ENV_PREFIXES):
+        return False
+    return bool(CUSTOM_KEY_ENV_RE.match(name))
+
+
+def is_manageable_key_env(name: str) -> bool:
+    """True when `name` is either a registered provider key or an allowed custom key."""
+    return name in KEY_ENV_INFO or is_allowed_custom_key_env(name)
+
+
+def write_env_assignment(name: str, value: str, path=None, *, source: str = "app.py") -> None:
     """Update or append one KEY=value in raglab/.env, preserving every other line.
 
     Comments and ordering are kept: .env is a file humans also edit, and a
     rewrite that dropped their notes would be a regression, not a convenience.
     """
-    existed = ENV_PATH.exists()
-    lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if existed else []
+    target = resolve_env_path(path)
+    existed = target.exists()
+    lines = target.read_text(encoding="utf-8").splitlines() if existed else []
     pattern = re.compile(r"^\s*(?:export\s+)?" + re.escape(name) + r"\s*=")
     for index, line in enumerate(lines):
         if pattern.match(line):
@@ -589,23 +663,28 @@ def write_env_assignment(name: str, value: str) -> None:
     else:
         if lines and lines[-1].strip():
             lines.append("")
-        lines.append(f"# added by app.py {datetime.now(timezone.utc):%Y-%m-%d}")
+        lines.append(f"# added by {source} {datetime.now(timezone.utc):%Y-%m-%d}")
         lines.append(f"{name}={value}")
-    ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     if not existed:
-        ENV_PATH.chmod(0o600)   # a fresh .env should not be group/world-readable
+        try:
+            target.chmod(0o600)   # a fresh .env should not be group/world-readable
+        except OSError:
+            pass
 
 
-def remove_env_assignment(name: str) -> bool:
+def remove_env_assignment(name: str, path=None) -> bool:
     """Drop one assignment from .env (and the process env). True if it existed."""
-    if not ENV_PATH.exists():
+    target = resolve_env_path(path)
+    if not target.exists():
+        os.environ.pop(name, None)
         return False
-    lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
+    lines = target.read_text(encoding="utf-8").splitlines()
     pattern = re.compile(r"^\s*(?:export\s+)?" + re.escape(name) + r"\s*=")
     kept = [line for line in lines if not pattern.match(line)]
     removed = len(kept) != len(lines)
     if removed:
-        ENV_PATH.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        target.write_text("\n".join(kept) + "\n", encoding="utf-8")
     os.environ.pop(name, None)
     return removed
 

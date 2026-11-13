@@ -106,6 +106,34 @@ class AdminAccessMethodSecurityTests {
     }
 
     @Test
+    void viewCanInspectEnvKeysButOnlyManageCanPersistOrDeleteEnvKeysAndAuditNeverLogsSecret() {
+        when(raglabClient.envKeys()).thenReturn(result());
+        when(raglabClient.setEnvKey(anyMap())).thenReturn(result());
+        when(raglabClient.deleteEnvKey(anyString(), any())).thenReturn(result());
+        authenticate("PERM_RAGLAB_CONSOLE_VIEW");
+
+        raglab.envKeys();
+        assertThrows(AccessDeniedException.class,
+                () -> raglab.setEnvKey(Map.of("key_env", "OPENROUTER_API_KEY", "value", "sk-secret-do-not-log"), authentication()));
+        assertThrows(AccessDeniedException.class,
+                () -> raglab.deleteEnvKey("OPENROUTER_API_KEY", true, authentication()));
+        verify(raglabClient).envKeys();
+        verify(raglabClient, never()).setEnvKey(anyMap());
+        verify(raglabClient, never()).deleteEnvKey(anyString(), any());
+
+        authenticate("PERM_RAGLAB_CONSOLE_MANAGE");
+        raglab.setEnvKey(Map.of("key_env", "OPENROUTER_API_KEY", "value", "sk-secret-do-not-log"), authentication());
+        raglab.deleteEnvKey("OPENROUTER_API_KEY", true, authentication());
+
+        verify(raglabClient).setEnvKey(Map.of("key_env", "OPENROUTER_API_KEY", "value", "sk-secret-do-not-log", "persist", true));
+        verify(raglabClient).deleteEnvKey("OPENROUTER_API_KEY", true);
+        verify(agentAudit).record("RAGLAB_ENV_KEY_SET", "OPENROUTER_API_KEY",
+                "Clé enregistrée dans raglab/.env", null, "operator@example.test", "OK");
+        verify(agentAudit).record("RAGLAB_ENV_KEY_DELETE", "OPENROUTER_API_KEY",
+                "Clé supprimée du service et de raglab/.env", null, "operator@example.test", "OK");
+    }
+
+    @Test
     void viewCannotRunRankedRetrievalAndTheServiceIsNotCalled() {
         authenticate("PERM_RAGLAB_CONSOLE_VIEW");
 

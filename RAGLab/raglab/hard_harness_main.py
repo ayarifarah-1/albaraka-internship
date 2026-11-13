@@ -42,7 +42,7 @@ def main(argv=None):
                         help='report credentials and local state without touching any provider endpoint')
     doctor.add_argument('--json', action='store_true', help='machine-readable report instead of markdown')
     pub = sub.add_parser('publish'); pub.add_argument('--phase', required=True)
-    get = sub.add_parser('collect'); get.add_argument('--repo', default='seif-bkh/RAGLab')
+    get = sub.add_parser('collect'); get.add_argument('--repo', default=os.environ.get('GITHUB_REPOSITORY', 'elayarifarah/albaraka-internship'))
     get.add_argument('--sha', required=True); get.add_argument('--destination', default=str(OUTPUT))
     args = parser.parse_args(argv)
     OUTPUT.mkdir(parents=True, exist_ok=True)

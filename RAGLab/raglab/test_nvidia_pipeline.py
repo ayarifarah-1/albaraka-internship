@@ -355,9 +355,18 @@ class Grounding(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unknown citation'):
             validate_answer(self.valid, self.sources)
 
-    def test_invented_quote(self):
-        self.valid['claims'][0]['evidence'][0]['quote'] = 'founded on 15 June 2001'
-        with self.assertRaisesRegex(ValueError, 'not in'):
+    def test_synthesized_claim_without_verbatim_quote(self):
+        # Model synthesizes the answer grounded on source_id without copying raw text
+        synthesized = {'answerable': True, 'claims': [
+            {'text': 'The institution was established in mid-1983.',
+             'evidence': [{'source_id': 'S1'}]}]}
+        validated = validate_answer(synthesized, self.sources)
+        self.assertEqual(len(validated), 1)
+        self.assertIn('1983', validated[0]['evidence'][0]['quote'])
+
+    def test_invented_number_in_claim_refused(self):
+        self.valid['claims'][0]['text'] = 'The bank was founded in 2001.'
+        with self.assertRaisesRegex(ValueError, '2001'):
             validate_answer(self.valid, self.sources)
 
     def test_uncited_claim(self):
@@ -2637,6 +2646,7 @@ class PackagingTest(unittest.TestCase):
         self.assertIn("build: .", compose)
         self.assertIn("env_file:", compose)
         self.assertIn("raglab/.env", compose)
+        self.assertIn("./raglab/.env:/app/raglab/.env", compose)
         for volume in ("raglab-index", "raglab-embed-cache", "raglab-documents"):
             self.assertIn(volume, compose)
         # the liveness probe is token-aware (/health is behind the token
@@ -3296,13 +3306,31 @@ class SoftRefusalWordingTest(unittest.TestCase):
                 "evidence_insufficient", "ar"))
 
     def test_missing_requirements_used_when_no_clarifications(self):
-        from answer import compose_refusal
+        from answer import compose_refusal, refusal_message
         out = compose_refusal(
             "evidence_insufficient", "ar",
             referral={"missing_requirements": ["procedural_evidence"],
                       "clarifications": []}, enabled=True)
-        self.assertIn("procedural_evidence", out)
-        self.assertIn("أقرب ما فيها", out)
+        self.assertNotIn("procedural_evidence", out)
+        self.assertIn("الإجراءات والشروط", out)
+        # generic `wide_evidence` never leaks raw snake_case into any language
+        for lang in ("ar", "fr", "en"):
+            clean = compose_refusal(
+                "evidence_insufficient", lang,
+                referral={"missing_requirements": ["wide_evidence"],
+                          "clarifications": []}, enabled=True)
+            self.assertNotIn("wide_evidence", clean)
+            self.assertEqual(clean, refusal_message("evidence_insufficient", lang))
+
+    def test_concept_not_shadowed_by_internal_missing_requirements(self):
+        from answer import compose_refusal
+        ar = compose_refusal(
+            "evidence_insufficient", "ar",
+            referral={"missing_requirements": ["wide_evidence"],
+                      "clarifications": []},
+            understood_as="من هو المضارب بالعمل؟", enabled=True)
+        self.assertEqual(
+            ar, "إن كنت تقصد «من هو المضارب بالعمل؟»، فإني لا أملك جوابًا صريحًا.")
 
     def test_concept_only_branch_quotes_understood_as(self):
         from answer import compose_refusal

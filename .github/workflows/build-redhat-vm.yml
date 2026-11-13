@@ -1,0 +1,184 @@
+name: Build Portable Red Hat Cloud VM (OVA + QCOW2)
+
+# Builds a minimized, pre-baked RHEL 9-compatible (Rocky Linux 9 Minimal Cloud)
+# virtual appliance containing Docker CE + all 4 Al Baraka containers
+# (`pgvector/pgvector:pg16` + `elayarifarah/albaraka-{raglab,backend,frontend}:latest`),
+# verifies live HTTP readiness inside KVM, shrinks & compresses the disk, and
+# exports BOTH:
+#   - albaraka-rhel9-appliance.ova   (VMware ESXi / vSphere / Workstation / VirtualBox)
+#   - albaraka-rhel9-cloud.qcow2     (KVM / Proxmox / OpenStack / OpenShift Virt)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - 'arena/**'
+    paths:
+      - 'redhat-vm/**'
+      - '.github/workflows/build-redhat-vm.yml'
+  workflow_dispatch:
+    inputs:
+      format:
+        description: 'Output VM format(s) to generate'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - ova
+          - qcow2
+      prebake_images:
+        description: 'Pre-bake all 4 container images inside VM disk (offline-ready)'
+        required: false
+        default: true
+        type: boolean
+      publish_release:
+        description: 'Publish/update downloadable GitHub Release (redhat-vm-latest)'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: build-redhat-vm-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build-vm:
+    name: Build Rocky/RHEL 9 Cloud VM (OVA + QCOW2)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Free unused runner SDKs so NVMe has 50+ GB headroom for VM compression
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install QEMU/KVM & cloud-init ISO tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 \
+            qemu-utils \
+            cloud-image-utils \
+            xorriso \
+            curl \
+            ca-certificates \
+            python3
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "::warning::/dev/kvm not present on runner; build will use QEMU TCG emulation."
+          fi
+
+      - name: Build, verify & compress Red Hat / Rocky 9 Cloud VM
+        run: |
+          chmod +x redhat-vm/build-vm.sh
+          EXTRA_ARGS=(--format "${{ inputs.format || 'both' }}")
+          if [ "${{ inputs.prebake_images }}" = "false" ]; then
+            EXTRA_ARGS+=(--slim)
+          fi
+          ./redhat-vm/build-vm.sh "${EXTRA_ARGS[@]}"
+
+      - name: Upload OVA & QCOW2 to GitHub Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: albaraka-redhat9-cloud-vm
+          path: |
+            redhat-vm/out/*.ova
+            redhat-vm/out/*.qcow2
+            redhat-vm/out/SHA256SUMS.txt
+          compression-level: 0
+          retention-days: 30
+
+      - name: Publish direct-download GitHub Release (redhat-vm-latest)
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release != false }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd redhat-vm/out
+
+          # GitHub Release single-asset limit is 2.0 GiB (2147483648 bytes).
+          # Any file <= 1980 MiB is uploaded directly as a single .ova / .qcow2;
+          # if a file ever exceeds 1980 MiB, split into 1900 MiB parts so release upload never fails.
+          MAX_BYTES=$((1980 * 1024 * 1024))
+          RELEASE_FILES=("SHA256SUMS.txt")
+          for f in *.ova *.qcow2; do
+            [ -e "$f" ] || continue
+            SZ="$(stat -c%s "$f")"
+            if [ "$SZ" -le "$MAX_BYTES" ]; then
+              RELEASE_FILES+=("$f")
+            else
+              echo "Splitting $f ($SZ bytes) into 1900M chunks for GitHub Release..."
+              split -b 1900M -d -a 2 "$f" "${f}.part"
+              for p in "${f}".part*; do
+                RELEASE_FILES+=("$p")
+              done
+            fi
+          done
+
+          TAG="redhat-vm-latest"
+          TITLE="Al Baraka Bank — Portable Red Hat / Rocky 9 Cloud VM (OVA + QCOW2)"
+          NOTES_FILE="$(mktemp)"
+          cat > "${NOTES_FILE}" <<EOF
+          ## Al Baraka Bank Tunisia — Portable Red Hat / Rocky Linux 9 Cloud VM
+
+          Built automatically from commit \`${GITHUB_SHA::7}\` on branch \`${GITHUB_REF_NAME}\`.
+
+          ### Included Ready-to-Deploy Appliance Files
+          - **\`albaraka-rhel9-appliance.ova\`** — Import directly into **VMware ESXi / vSphere**, **VMware Workstation**, or **VirtualBox**.
+          - **\`albaraka-rhel9-cloud.qcow2\`** — Deploy directly on **KVM / QEMU**, **Proxmox VE**, **OpenStack**, or **Red Hat OpenShift Virtualization**.
+          - **\`SHA256SUMS.txt\`** — SHA-256 integrity checksums.
+
+          *(Note: If any image exceeded GitHub's 2 GiB release file cap and was split into \`.part00\`, \`.part01\`, rejoin with \`cat file.part* > file\` on Linux/macOS or \`cmd /c copy /b file.part00+file.part01 file\` on Windows — or download the single unsplit file from the Workflow Run Artifacts).*
+
+          ### Pre-Baked Contents & Credentials
+          - **OS**: Rocky Linux 9 Minimal Cloud (100% RHEL 9 binary-compatible, \`SELinux Enforcing\`, \`firewalld\` exposing only \`22/tcp\` & \`8080/tcp\`).
+          - **Pre-baked Containers**: \`pgvector/pgvector:pg16\`, \`elayarifarah/albaraka-raglab:latest\`, \`elayarifarah/albaraka-backend:latest\`, \`elayarifarah/albaraka-frontend:latest\`.
+          - **Web Portal**: \`http://<VM-IP>:8080\` (auto-started on boot via \`albaraka-stack.service\`; IP shown on VM console).
+          - **VM Login (Console/SSH)**: \`albaraka\` / \`ChangeMe-AlBaraka-2026!\`
+          - **Web Admin Login**: \`admin@albaraka.tn\` / \`postgres\`
+          EOF
+
+          # Remove leading indentation from heredoc
+          sed -i 's/^          //' "${NOTES_FILE}"
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            # Clean old assets on redhat-vm-latest before uploading fresh build
+            OLD_ASSETS="$(gh release view "${TAG}" --json assets -q '.assets[].name' || true)"
+            for old in ${OLD_ASSETS}; do
+              gh release delete-asset "${TAG}" "${old}" --yes || true
+            done
+            gh release edit "${TAG}" --title "${TITLE}" --notes-file "${NOTES_FILE}" --prerelease
+            gh release upload "${TAG}" "${RELEASE_FILES[@]}" --clobber
+          else
+            gh release create "${TAG}" "${RELEASE_FILES[@]}" \
+              --target "${GITHUB_SHA}" \
+              --title "${TITLE}" \
+              --notes-file "${NOTES_FILE}" \
+              --prerelease
+          fi
+
+          RELEASE_URL="$(gh release view "${TAG}" --json url -q .url)"
+          {
+            echo "### Portable Red Hat / Rocky 9 Cloud VM Built Successfully"
+            echo ""
+            echo "- **Direct Download Release**: [${TAG}](${RELEASE_URL})"
+            echo ""
+            echo "| File | Size | SHA-256 |"
+            echo "| :--- | :--- | :--- |"
+            while read -r sha fname; do
+              sz="$(ls -lh "$fname" | awk '{print $5}')"
+              echo "| \`${fname}\` | ${sz} | \`${sha}\` |"
+            done < SHA256SUMS.txt
+          } >> "$GITHUB_STEP_SUMMARY"

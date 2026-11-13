@@ -146,9 +146,9 @@ rubric was sent to a model.
 
 | Experiment | Run | Saved measurements |
 |---|---|---|
-| Initial pricing preflight | [33976033405](https://github.com/seif-bkh/RAGLab/actions/runs/33976033405) | [free_iteration_01.json](reports/free_iteration_01.json): pricing HTTP 403; **zero inference calls** |
-| Screen + MiniMax follow-through | [33976171738](https://github.com/seif-bkh/RAGLab/actions/runs/33976171738) | [free_iteration_02.json](reports/free_iteration_02.json) |
-| Fresh full xKiro comparison | [33977206216](https://github.com/seif-bkh/RAGLab/actions/runs/33977206216) | **[free_iteration_03.json](reports/free_iteration_03.json)** |
+| Initial pricing preflight | `33976033405` | [free_iteration_01.json](reports/free_iteration_01.json): pricing HTTP 403; **zero inference calls** |
+| Screen + MiniMax follow-through | `33976171738` | [free_iteration_02.json](reports/free_iteration_02.json) |
+| Fresh full xKiro comparison | `33977206216` | **[free_iteration_03.json](reports/free_iteration_03.json)** |
 
 The first pricing failure was corrected using the same scoped authentication
 and explicit client identification as the successful catalog probe; the free-

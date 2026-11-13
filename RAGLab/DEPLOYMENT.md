@@ -31,10 +31,9 @@ _هذه الوثيقة self-contained: لا تحتاجون شيئًا آخر غ�
 
 ```bash
 # 1) الكود — منح الفريق صلاحية قراءة على المستودع، أو بديل بلا وصول للكود:
-#    بناء الصورة مرة واحدة ثم دفعها إلى رجستري المنصة (ghcr/harbor) وسحبها هناك.
-git clone https://github.com/seif-bkh/RAGLab.git
-cd RAGLab
-git checkout deploy-handoff-20261002
+#    سحب الصورة الجاهزة من Docker Hub (`elayarifarah/raglab-service`).
+git clone https://github.com/elayarifarah/albaraka-internship.git
+cd albaraka-internship/RAGLab
 
 # 2) البيئة — انسخوا القالب واملؤوه (انظر §4)
 cp raglab/.env.example raglab/.env

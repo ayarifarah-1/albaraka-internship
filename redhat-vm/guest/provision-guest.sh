@@ -83,12 +83,11 @@ dnf install -y --setopt=install_weak_deps=False --nodocs \
 # trusting Docker's internal bridge range (172.16.0.0/12) so RHEL 9 nftables never
 # blocks inter-container traffic (frontend -> backend -> postgres/raglab).
 systemctl enable --now firewalld
-firewall-cmd --permanent --set-default-zone=public
+firewall-cmd --set-default-zone=public
 firewall-cmd --permanent --zone=public --add-service=ssh
 firewall-cmd --permanent --zone=public --add-port=8080/tcp
 firewall-cmd --permanent --zone=public --add-masquerade
-firewall-cmd --permanent --zone=trusted --add-interface=docker0 || true
-firewall-cmd --permanent --zone=trusted --add-source=172.16.0.0/12
+firewall-cmd --permanent --zone=trusted --add-source=172.20.0.0/14
 firewall-cmd --reload
 firewall-cmd --list-all
 firewall-cmd --zone=trusted --list-all
@@ -206,19 +205,22 @@ if [ "${NEED_KMODS}" -eq 1 ]; then
     || true
 fi
 
-AVAIL_MODS=""
-for mod in virtio_blk virtio_scsi virtio_net virtio_pci ahci libahci ata_piix sd_mod sr_mod vmw_pvscsi mptspi mptsas vmxnet3 e1000 e1000e nvme; do
-  if modinfo -k "${KVER}" "${mod}" >/dev/null 2>&1; then
-    AVAIL_MODS="${AVAIL_MODS} ${mod}"
-  fi
-done
-
 mkdir -p /etc/dracut.conf.d
-cat > /etc/dracut.conf.d/99-hypervisors.conf <<EOF
+for kdir in /lib/modules/*; do
+  [ -d "${kdir}" ] || continue
+  kver="$(basename "${kdir}")"
+  AVAIL_MODS=""
+  for mod in virtio_blk virtio_scsi virtio_net virtio_pci ahci libahci ata_piix sd_mod sr_mod vmw_pvscsi mptspi mptsas vmxnet3 e1000 e1000e nvme; do
+    if modinfo -k "${kver}" "${mod}" >/dev/null 2>&1; then
+      AVAIL_MODS="${AVAIL_MODS} ${mod}"
+    fi
+  done
+  cat > /etc/dracut.conf.d/99-hypervisors.conf <<EOF
 hostonly="no"
 add_drivers+=" ${AVAIL_MODS} "
 EOF
-dracut -f "/boot/initramfs-${KVER}.img" "${KVER}"
+  dracut -f "/boot/initramfs-${kver}.img" "${kver}"
+done
 
 echo "========================================================================"
 echo "[8/9] Sealing network, cloud-init, SELinux contexts & logs"

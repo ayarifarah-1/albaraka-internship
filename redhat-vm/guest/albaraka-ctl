@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# =============================================================================
+# albaraka-ctl — Management CLI for Al Baraka Red Hat Cloud Appliance
+# =============================================================================
+set -euo pipefail
+
+STACK_DIR="/opt/albaraka"
+COMPOSE_FILE="${STACK_DIR}/docker-compose.yml"
+KEYS_FILE="${STACK_DIR}/config/api-keys.env"
+
+compose() {
+  /usr/bin/docker compose --project-directory "${STACK_DIR}" -f "${COMPOSE_FILE}" "$@"
+}
+
+require_root() {
+  if [ "$(id -u)" -ne 0 ]; then
+    exec sudo "$0" "$@"
+  fi
+}
+
+set_env_kv() {
+  local key="$1"
+  local val="$2"
+  local file="$3"
+  if grep -qE "^#?[[:space:]]*${key}=" "${file}"; then
+    sed -i "s|^#*[[:space:]]*${key}=.*|${key}=${val}|" "${file}"
+  else
+    echo "${key}=${val}" >> "${file}"
+  fi
+}
+
+cmd="${1:-status}"
+shift || true
+
+case "${cmd}" in
+  status)
+    /usr/local/bin/albaraka-boot-sync.sh || true
+    cat /etc/issue
+    echo "--- Systemd Unit (albaraka-stack.service) ---"
+    systemctl status albaraka-stack.service --no-pager -l || true
+    echo ""
+    echo "--- Containers ---"
+    compose ps
+    ;;
+  start)
+    require_root start "$@"
+    systemctl start albaraka-stack.service
+    compose ps
+    ;;
+  stop)
+    require_root stop "$@"
+    systemctl stop albaraka-stack.service
+    ;;
+  restart)
+    require_root restart "$@"
+    /usr/local/bin/albaraka-boot-sync.sh
+    compose down
+    systemctl restart albaraka-stack.service
+    compose ps
+    ;;
+  logs)
+    compose logs -f "$@"
+    ;;
+  set-keys)
+    require_root set-keys "$@"
+    nvidia=""
+    xkiro=""
+    openrouter=""
+    groq=""
+    jina=""
+    if [ "$#" -eq 0 ]; then
+      echo "Configure RAGLab API keys (leave blank to keep current value):"
+      read -r -p "  NVIDIA_API_KEY     : " nvidia
+      read -r -p "  XKIRO_API_KEY      : " xkiro
+      read -r -p "  OPENROUTER_API_KEY : " openrouter
+      read -r -p "  GROQ_API_KEY       : " groq
+      read -r -p "  JINA_API_KEY       : " jina
+    else
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --nvidia) nvidia="${2:-}"; shift 2 ;;
+          --xkiro) xkiro="${2:-}"; shift 2 ;;
+          --openrouter) openrouter="${2:-}"; shift 2 ;;
+          --groq) groq="${2:-}"; shift 2 ;;
+          --jina) jina="${2:-}"; shift 2 ;;
+          *) echo "Unknown flag: $1" >&2; exit 1 ;;
+        esac
+      done
+    fi
+    [ -n "${nvidia}" ] && set_env_kv "NVIDIA_API_KEY" "${nvidia}" "${KEYS_FILE}"
+    [ -n "${xkiro}" ] && set_env_kv "XKIRO_API_KEY" "${xkiro}" "${KEYS_FILE}"
+    [ -n "${openrouter}" ] && set_env_kv "OPENROUTER_API_KEY" "${openrouter}" "${KEYS_FILE}"
+    [ -n "${groq}" ] && set_env_kv "GROQ_API_KEY" "${groq}" "${KEYS_FILE}"
+    [ -n "${jina}" ] && set_env_kv "JINA_API_KEY" "${jina}" "${KEYS_FILE}"
+    chmod 0666 "${KEYS_FILE}"
+    echo "Saved keys to ${KEYS_FILE}. Restarting raglab to ensure reload..."
+    compose up -d --no-build --pull never raglab
+    ;;
+  update-images)
+    require_root update-images "$@"
+    echo "Pulling latest images from Docker Hub (elayarifarah/albaraka-*)..."
+    compose pull
+    compose up -d --remove-orphans
+    docker image prune -f
+    compose ps
+    ;;
+  *)
+    cat <<EOF
+Usage: albaraka-ctl <command>
+
+Commands:
+  status          Show VM IP, portal URL, systemd & container status
+  start           Start the 4-container Al Baraka stack
+  stop            Stop the Al Baraka stack
+  restart         Recreate and restart all containers
+  logs [service]  Follow container logs (e.g. albaraka-ctl logs backend)
+  set-keys        Configure NVIDIA / xKiro / OpenRouter / Groq / Jina API keys
+  update-images   Pull newer container images from Docker Hub (requires internet)
+EOF
+    exit 1
+    ;;
+esac

@@ -5,3 +5,14 @@ image-search/
 .env.*
 !.env.example
 !.env.*.example
+
+# Red Hat Cloud VM build workspace & binary appliance outputs
+redhat-vm/.build/
+redhat-vm/.cache/
+redhat-vm/out/
+*.qcow2
+*.ova
+*.ovf
+*.vmdk
+*.iso
+

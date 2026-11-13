@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# NetworkManager dispatcher hook: update console banner & backend CORS on DHCP IP changes.
+INTERFACE="${1:-}"
+ACTION="${2:-}"
+
+case "${INTERFACE}" in
+  lo|docker*|br-*|veth*|virbr*) exit 0 ;;
+esac
+
+case "${ACTION}" in
+  up|dhcp4-change|hostname)
+    /usr/local/bin/albaraka-boot-sync.sh --refresh-running || true
+    ;;
+esac

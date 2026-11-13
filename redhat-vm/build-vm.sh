@@ -126,17 +126,34 @@ EOF
 
 cat > "${USER_DATA}" <<EOF
 #cloud-config
+output:
+  all: '| tee -a /var/log/cloud-init-output.log > /dev/console'
 write_files:
-  - path: /tmp/albaraka-payload.tar.gz
+  - path: /var/lib/albaraka-bootstrap/albaraka-payload.tar.gz
     permissions: '0644'
     encoding: b64
     content: ${PAYLOAD_B64}
-  - path: /tmp/provision-guest.sh
+  - path: /var/lib/albaraka-bootstrap/provision-guest.sh
     permissions: '0755'
     encoding: b64
     content: ${PROVISION_B64}
+  - path: /etc/systemd/system/albaraka-provision.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Al Baraka Appliance Image Provisioner
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      Environment=PREBAKE_IMAGES=${PREBAKE_IMAGES}
+      Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      ExecStart=/bin/bash /var/lib/albaraka-bootstrap/provision-guest.sh
+      StandardOutput=journal+console
+      StandardError=journal+console
 runcmd:
-  - [ /usr/bin/env, "PREBAKE_IMAGES=${PREBAKE_IMAGES}", /bin/bash, /tmp/provision-guest.sh ]
+  - [ /bin/bash, -c, '/sbin/restorecon -Rv /etc/systemd/system /var/lib/albaraka-bootstrap || true; /usr/bin/systemctl daemon-reload; /usr/bin/systemctl start --no-block albaraka-provision.service || { echo "===ALBARAKA_VM_BUILD_FAILED===" > /dev/console; /sbin/poweroff -f; }' ]
 EOF
 
 build_seed_iso "${SEED_ISO}" "${USER_DATA}" "${META_DATA}"
@@ -152,7 +169,7 @@ fi
 SERIAL_LOG="${WORK_DIR}/serial.log"
 echo "[HOST] Booting Rocky Linux 9 VM to install Docker, pre-bake images & shrink disk..."
 set +e
-qemu-system-x86_64 \
+timeout --foreground 2100 qemu-system-x86_64 \
   -machine q35 \
   "${ACCEL_ARGS[@]}" \
   -smp "${BUILD_CPUS}" \
@@ -163,7 +180,8 @@ qemu-system-x86_64 \
   -device virtio-scsi-pci,id=scsi0 \
   -drive "file=${WORK_QCOW2},if=none,id=hd0,format=qcow2,discard=unmap,detect-zeroes=unmap" \
   -device scsi-hd,drive=hd0,bus=scsi0.0 \
-  -drive "file=${SEED_ISO},if=virtio,media=cdrom,readonly=on" \
+  -drive "file=${SEED_ISO},if=none,id=cidata0,format=raw,readonly=on" \
+  -device scsi-cd,drive=cidata0,bus=scsi0.0 \
   -netdev user,id=net0 \
   -device virtio-net-pci,netdev=net0 | tee "${SERIAL_LOG}"
 set -e

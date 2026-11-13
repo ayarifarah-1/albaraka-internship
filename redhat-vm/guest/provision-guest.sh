@@ -8,9 +8,7 @@
 # =============================================================================
 set -Eeuo pipefail
 
-if [ -c /dev/ttyS0 ]; then
-  exec > /dev/ttyS0 2>&1
-fi
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 on_error() {
   local exit_code=$?
@@ -19,7 +17,7 @@ on_error() {
   echo "[FATAL] Guest provisioning failed at line ${line_no} (exit=${exit_code})"
   echo "===ALBARAKA_VM_BUILD_FAILED==="
   sync || true
-  poweroff -f || true
+  /usr/sbin/poweroff -f || true
   exit "${exit_code}"
 }
 trap 'on_error ${LINENO}' ERR
@@ -129,7 +127,7 @@ echo "========================================================================"
 echo "[4/9] Installing Al Baraka stack, helper CLI & systemd units"
 echo "========================================================================"
 mkdir -p /tmp/albaraka-stage
-tar -xzf /tmp/albaraka-payload.tar.gz -C /tmp/albaraka-stage
+tar -xzf /var/lib/albaraka-bootstrap/albaraka-payload.tar.gz -C /tmp/albaraka-stage
 
 mkdir -p /opt/albaraka/config
 cp /tmp/albaraka-stage/stack/docker-compose.yml /opt/albaraka/docker-compose.yml
@@ -258,6 +256,11 @@ restorecon -Rv /etc/ssh /etc/sudoers.d /etc/systemd/system /opt/albaraka /usr/lo
 echo "========================================================================"
 echo "[9/9] Shrinking filesystem (cleaning caches, logs & fstrim)"
 echo "========================================================================"
+# Remove temporary build-only bootstrap service & payload before sealing image.
+rm -f /etc/systemd/system/albaraka-provision.service
+rm -rf /var/lib/albaraka-bootstrap
+systemctl daemon-reload || true
+
 dnf clean all
 rm -rf /var/cache/dnf/* /var/lib/dnf/repos/* /tmp/* /var/tmp/*
 cloud-init clean --logs || true
@@ -273,4 +276,5 @@ df -h /
 
 echo "===ALBARAKA_VM_BUILD_SUCCESS==="
 sync
-poweroff
+sleep 1
+systemctl --no-block poweroff || /usr/sbin/poweroff -f
